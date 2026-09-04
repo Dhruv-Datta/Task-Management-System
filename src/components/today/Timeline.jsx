@@ -554,7 +554,7 @@ export default function Timeline({
   timeline, events, nowMinutes, canvasRef,
   onOpenTask, onUnschedule, onPlaceTask, onPlaceEvent, onAddEvent, onEditEvent,
   dragPreview = null, sticky = false, maxHeight = 'calc(100vh - 230px)',
-  googleControl = null,
+  googleControl = null, fill = false,
 }) {
   // No `isOver` styling: the canvas used to tint green while something was over
   // it, which was the only feedback back when the drop preview was a dashed
@@ -703,8 +703,18 @@ export default function Timeline({
 
   const ghost = drawn || dragPreview;
 
+  /*
+    `fill`: on a wide screen the page around this is a fixed-height column (see
+    /today), so the panel takes the height it is given and the hours scroll
+    INSIDE it. That is the whole point — a calendar whose own scroll is also
+    the page's scroll makes you scroll the page past nothing to reach 3pm.
+  */
   return (
-    <Panel className={sticky ? 'lg:sticky lg:top-24' : ''}>
+    <Panel
+      className={`${sticky ? 'lg:sticky lg:top-24' : ''} ${
+        fill ? 'lg:h-full lg:flex lg:flex-col lg:min-h-0' : ''
+      }`}
+    >
       <PanelHead
         title="Timeline"
         hint={timeline.blocks.length === 0 ? 'drag a task across' : null}
@@ -757,8 +767,16 @@ export default function Timeline({
 
       <div
         ref={scrollRef}
-        style={{ maxHeight }}
-        className="px-3 pb-3 min-h-[320px] overflow-y-auto"
+        // Narrow, the panel is one of two stacked cards and the page scrolls
+        // past it, so it caps itself. Wide and filling, the height comes from
+        // the column it is in and a cap of its own is what left the page with
+        // a hundred spare pixels to scroll through.
+        style={fill ? { '--tl-max': maxHeight } : { maxHeight }}
+        className={`px-3 pb-3 overflow-y-auto ${
+          fill
+            ? 'max-h-[var(--tl-max)] min-h-[320px] lg:max-h-none lg:min-h-0 lg:flex-1'
+            : 'min-h-[320px]'
+        }`}
       >
         <div
           ref={(node) => {

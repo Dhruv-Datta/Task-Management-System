@@ -39,7 +39,12 @@ export default function CalendarStep({
   const placed = day.open.filter(task => task.scheduled_start);
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(320px,420px)] gap-5 items-start">
+    /*
+      Wide, this is the page: the two columns are exactly as tall as what is
+      left of the window, and each one scrolls inside itself. Stacked on a
+      narrow screen they go back to being two cards on a scrolling page.
+    */
+    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(320px,420px)] gap-5 items-start lg:h-full lg:min-h-0 lg:items-stretch lg:grid-rows-[minmax(0,1fr)]">
       <Timeline
         timeline={timeline}
         events={events}
@@ -54,9 +59,10 @@ export default function CalendarStep({
         dragPreview={dragPreview}
         googleControl={googleControl}
         maxHeight="calc(100vh - 300px)"
+        fill
       />
 
-      <Panel className="lg:sticky lg:top-24">
+      <Panel className="lg:h-full lg:flex lg:flex-col lg:min-h-0">
         {/*
           Title and count, and nothing else. Not a hint, and not a total of the
           hours still to place: a sum of guesses is a number you cannot act on,
@@ -64,7 +70,7 @@ export default function CalendarStep({
         */}
         <PanelHead title="Not placed yet" count={unplaced.length} />
 
-        <div className="px-2 pb-3">
+        <div className="px-2 pb-3 lg:flex-1 lg:min-h-0 lg:overflow-y-auto">
           {unplaced.length === 0 ? (
             <div className="px-4 py-10 text-center">
               <CalendarClock size={18} className="inline-block mb-2 text-gray-300" />

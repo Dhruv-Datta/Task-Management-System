@@ -112,35 +112,42 @@ function StepRail({ current, onStep }) {
  * you are done with this step.
  */
 export default function PlanFlow({
-  step, onStep, onBack, onNext, onFinish, dateLine, summaryLine, nextLabel, children,
+  step, onStep, onBack, onNext, onFinish, dateLine, summaryLine, nextLabel, fill = false,
+  children,
 }) {
   const index = stepIndex(step);
   const first = index === 0;
   const last = index === PLAN_STEPS.length - 1;
 
+  /*
+    `fill`: the step's body is the window rather than a thing on a page — the
+    calendar step, where the rail above and the buttons below are a few dozen
+    pixels and the grid should have every one of the rest. It scrolls inside
+    itself, so the page around it has nothing left to scroll.
+  */
   return (
-    <div>
+    <div className={fill ? 'lg:flex lg:flex-col lg:flex-1 lg:min-h-0' : ''}>
       {/*
         A bar, not a card. It carries where you are in the app and where you are
         in the flow, in one line: the panel below is the object on this page, and
         chrome that needs its own surface and its own shadow is competing with
         it.
       */}
-      <div className="flex items-center gap-3 pb-3 mb-4 border-b border-gray-200/70">
+      <div className="flex items-center gap-3 pb-3 mb-4 border-b border-gray-200/70 flex-shrink-0">
         <StepRail current={step} onStep={onStep} />
         <span className="ml-auto text-[11px] font-semibold text-gray-400 truncate flex-shrink min-w-0">
           {dateLine}
         </span>
       </div>
 
-      {children}
+      {fill ? <div className="lg:flex-1 lg:min-h-0">{children}</div> : children}
 
       {/*
         Back and Next at the bottom, where the step ends: a Next button in the
         header would be a button you press before you have read the thing it is
         asking you about.
       */}
-      <div className="mt-3 flex items-center gap-3">
+      <div className="mt-3 flex items-center gap-3 flex-shrink-0">
         <button
           type="button"
           onClick={onBack}

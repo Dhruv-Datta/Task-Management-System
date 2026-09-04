@@ -1039,12 +1039,31 @@ export default function TodayPage() {
 
   const finalized = !!plan?.finalized;
 
+  /*
+    THE CALENDAR IS THE WINDOW, not something on a page that scrolls.
+
+    On the two views the timeline is the main object — the calendar step, and
+    the finished day — the page is exactly as tall as what is left of the
+    window, and anything that does not fit scrolls inside its own column. Give
+    those views an ordinary page instead and the window scrolls a hundred
+    pixels past the bottom of a grid that is already showing you everything:
+    a scrollbar that moves nothing you wanted to see.
+
+    Wide screens only. Stacked into one column on a phone the two panels are
+    genuinely taller than the window, and there the page is right to scroll.
+  */
+  const fitsWindow = finalized || step === 'calendar';
+
   return (
     /*
       Same white ground and same container as /tasks: this is another room in
       the same building, not a different app one tab across.
     */
-    <div className="max-w-[1400px] mx-auto px-6 lg:px-12 pt-6 pb-16">
+    <div
+      className={`max-w-[1400px] mx-auto px-6 lg:px-12 pt-6 pb-16 ${
+        fitsWindow ? 'lg:h-[calc(100vh-6rem)] lg:pb-6 lg:flex lg:flex-col' : ''
+      }`}
+    >
       {loadError && <div className="mb-4"><LoadError error={loadError} onRetry={() => loadAll()} /></div>}
       {writeError && <WriteError error={writeError} onDismiss={() => setWriteError(null)} />}
       {googleNotice && (
@@ -1114,6 +1133,7 @@ export default function TodayPage() {
             />
           ) : (
             <PlanFlow
+              fill={fitsWindow}
               step={step}
               onStep={goStep}
               onBack={goBack}

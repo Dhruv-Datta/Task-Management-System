@@ -116,9 +116,14 @@ export default function DayView({
   const left = day.open.length;
 
   return (
-    <div>
+    /*
+      Wide, the finished day is exactly one screen: the header on top, and under
+      it two columns that end where the window does and scroll inside
+      themselves. Nothing here is worth scrolling the page for.
+    */
+    <div className="lg:flex lg:flex-col lg:flex-1 lg:min-h-0">
       <section
-        className="relative overflow-hidden rounded-3xl bg-white border border-gray-200/70 px-5 sm:px-7 pt-4 pb-5"
+        className="relative overflow-hidden rounded-3xl bg-white border border-gray-200/70 px-5 sm:px-7 pt-4 pb-5 lg:flex-shrink-0"
         style={{ boxShadow: '0 1px 2px rgba(16,24,40,0.04), 0 16px 36px -20px rgba(16,24,40,0.16)' }}
       >
         <div
@@ -179,7 +184,7 @@ export default function DayView({
       {/* The calendar leads, because the finished day's first question is
           "what now"; the priority column is the fallback when the schedule
           stops being true. */}
-      <div className="mt-4 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(300px,400px)] gap-5 items-start">
+      <div className="mt-4 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(300px,400px)] gap-5 items-start lg:flex-1 lg:min-h-0 lg:items-stretch lg:grid-rows-[minmax(0,1fr)]">
         <Timeline
           timeline={timeline}
           events={events}
@@ -194,16 +199,17 @@ export default function DayView({
           dragPreview={dragPreview}
           googleControl={googleControl}
           sticky={false}
+          fill
         />
 
-        <Panel>
+        <Panel className="lg:h-full lg:flex lg:flex-col lg:min-h-0">
           <PanelHead
             title="By priority"
             count={day.open.length}
             hint={day.open.length > 0 ? 'what matters, if the hours slip' : 'nothing left'}
           />
 
-          <div className="px-2 pb-3">
+          <div className="px-2 pb-3 lg:flex-1 lg:min-h-0 lg:overflow-y-auto">
             {day.planned.length === 0 ? (
               <p className="px-5 py-8 text-[13px] text-gray-400 text-center">
                 Nothing on today. Re-plan to put something on it.
