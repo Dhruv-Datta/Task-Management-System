@@ -1,0 +1,87 @@
+'use client';
+
+import { useSyncExternalStore } from 'react';
+import { CLUSTER_BY, GROUP_BY } from './tasks';
+
+/*
+  How you like to LOOK at a list: what the list view's sections are, and how a
+  board column gathers its cards inside itself.
+
+  Both of these used to be component state, which meant the page forgot them the
+  moment you left it: you grouped by priority, went to Today, came back, and it
+  was by status again. Nothing about that is a per-visit decision. They are
+  standing preferences, exactly like which view you are in, so they are kept the
+  way lib/taskView.js keeps that one: in localStorage, read through
+  useSyncExternalStore so the first (hydrating) render still matches what the
+  server rendered, and the stored value arrives a beat later.
+
+  Deliberately NOT saved to the database. This is how one browser likes to read
+  the page, not a fact about the work, and it should not follow you onto a
+  screen of a different size.
+*/
+
+// Distinct from any stored value, including `null`, which is what "no grouping"
+// legitimately reads as on the board.
+const UNREAD = Symbol('unread');
+
+function choice(storageKey, normalize) {
+  let current = UNREAD;
+  const listeners = new Set();
+
+  return {
+    subscribe(onChange) {
+      listeners.add(onChange);
+      return () => listeners.delete(onChange);
+    },
+    get() {
+      if (current === UNREAD) {
+        try {
+          current = normalize(window.localStorage.getItem(storageKey));
+        } catch {
+          // Private mode, storage disabled. The default is a fine answer.
+          current = normalize(null);
+        }
+      }
+      return current;
+    },
+    server() {
+      return normalize(null);
+    },
+    write(next) {
+      const value = normalize(next);
+      if (value === current) return;
+      current = value;
+      try {
+        if (value === null) window.localStorage.removeItem(storageKey);
+        else window.localStorage.setItem(storageKey, value);
+      } catch {
+        // Not being able to remember the choice shouldn't stop us making it.
+      }
+      listeners.forEach(fn => fn());
+    },
+  };
+}
+
+// A stored key that no longer exists (a renamed axis, a hand-edited value) reads
+// as the default rather than as a section nothing can ever land in.
+const groupByStore = choice('tasks.groupBy', value => (
+  GROUP_BY.some(g => g.key === value) ? value : 'status'
+));
+
+// `null` is a real answer here: the board's columns are the statuses, and "no
+// grouping" is the plain column.
+const clusterByStore = choice('tasks.clusterBy', value => (
+  CLUSTER_BY.some(c => c.key === value) ? value : null
+));
+
+/** What the list view's sections are. Always something; defaults to status. */
+export function useGroupBy() {
+  const groupBy = useSyncExternalStore(groupByStore.subscribe, groupByStore.get, groupByStore.server);
+  return [groupBy, groupByStore.write];
+}
+
+/** How a board column gathers its cards, or `null` for one plain column. */
+export function useClusterBy() {
+  const clusterBy = useSyncExternalStore(clusterByStore.subscribe, clusterByStore.get, clusterByStore.server);
+  return [clusterBy, clusterByStore.write];
+}
