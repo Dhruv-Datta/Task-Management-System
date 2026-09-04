@@ -6,8 +6,8 @@
   The other way onto the day. Attention shows you what is shouting; this shows
   you everything, quietly, so the thing that matters but is not due can still be
   chosen. Grouped by list because that is how your responsibilities are actually
-  divided, and searched across title, notes and tag because after a dozen
-  projects browsing stops being the fast way.
+  divided, and searched across title and notes because after a dozen projects
+  browsing stops being the fast way.
 
     Personal
       Finish internship application        [ Must ][ Optional ]

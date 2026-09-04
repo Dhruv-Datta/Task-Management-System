@@ -33,9 +33,6 @@ export function sanitizeWritableFields(body = {}) {
   // "This one is going to be a fight." A boolean and nothing cleverer: it is
   // what Attention reads a week out (see lib/agenda's `attention`).
   if (body.is_hard !== undefined) row.is_hard = !!body.is_hard;
-  // A tag is free text kept as typed: it names a project or a context, not a
-  // symbol, so it is not upper-cased the way AlphaOS's ticker was.
-  if (body.tag !== undefined) row.tag = String(body.tag || '').trim();
   if (body.status !== undefined || body.done !== undefined) {
     const status = body.status !== undefined
       ? normalizeStatus(body.status)

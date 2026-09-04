@@ -27,8 +27,7 @@
   Adapted from AlphaOS's task workspace, cut down to one person's work. The
   model (lib/tasks.js): a task belongs to a LIST, may name a PERSON, and moves
   through four STATUSES (not started, in progress, waiting review, completed).
-  Due dates, the hard flag, priority and an optional tag are metadata you
-  filter and sort by.
+  Due dates, the hard flag and priority are metadata you filter and sort by.
 
   The list switcher always has exactly one list open, so the page only ever
   shows one body of work. It renders in one of three views, chosen in the app

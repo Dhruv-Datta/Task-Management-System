@@ -3,8 +3,8 @@
 
   Adapted from AlphaOS's task system, with the workspace removed: there is one
   account and one person, so a task belongs to a LIST and moves through four
-  STATUSES. Everything else (priority, dates, tag) is metadata you filter and
-  sort by, never a place a task can get stuck.
+  STATUSES. Everything else (priority, dates) is metadata you filter and sort
+  by, never a place a task can get stuck.
 
     List:       which list a task belongs to (stored as `list_id`; the lists
                 themselves live in app_settings under `task_lists`, served by
@@ -21,8 +21,6 @@
                 important it is and not how long it takes: the two other things
                 you already have fields for. It is what earns a task a place in
                 Attention a week before it is owed.
-    Tag:        free text, one per task: a project, a context, an area of life.
-                It is what the board can gather a column's cards by.
     The day:    `planned_date` (the day you CHOSE to work on it),
                 `daily_priority` (must_do / optional, within that day),
                 `estimated_minutes` (how long you think it takes), and
@@ -376,7 +374,6 @@ export function normalizeTask(row) {
     priority: normalizePriority(row.priority),
     title: row.title || '',
     notes: row.notes || '',
-    tag: row.tag || '',
     due_date: row.due_date || null,
     is_hard: !!row.is_hard,
     // The planning fields, read defensively for the same reason as the rest:
@@ -652,7 +649,6 @@ export function listTree(lists, groups = []) {
 export const EMPTY_FILTERS = {
   status: null,      // status key, null = any (completed still hidden by showCompleted)
   priority: null,
-  tag: null,
   query: '',
   showCompleted: false,
 };
@@ -668,9 +664,8 @@ export function filterTasks(tasks, filters = {}) {
     if (f.status && task.status !== f.status) return false;
     if (!f.showCompleted && f.status !== 'completed' && task.status === 'completed') return false;
     if (f.priority && task.priority !== f.priority) return false;
-    if (f.tag && task.tag.toUpperCase() !== String(f.tag).toUpperCase()) return false;
     if (q) {
-      const hay = `${task.title} ${task.notes} ${task.tag}`.toLowerCase();
+      const hay = `${task.title} ${task.notes}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
@@ -814,31 +809,22 @@ export function taskSummary(tasks, today = todayISO()) {
 /*
   The board's columns are ALWAYS the four statuses, which is what a board is for
   and the one axis a drag can meaningfully change. Grouping on the board works
-  inside a column instead: it gathers a column's cards into runs, so one
-  project's work sits together, or the urgent work sits at the top.
+  inside a column instead: it gathers a column's cards into runs, so the urgent
+  work sits at the top of the column rather than wherever it was dropped.
 
   This is ordering, not membership. Nothing moves between columns and no field is
   written; a run is just where a card is drawn.
 */
 export const CLUSTER_BY = [
   { key: 'priority', label: 'Priority' },
-  { key: 'tag', label: 'Tag' },
 ];
-
-const NO_TAG = '__no_tag__';
-
-function clusterKeyOf(task, clusterBy) {
-  if (clusterBy === 'tag') return task.tag || NO_TAG;
-  return task.priority;
-}
 
 /**
  * A column's tasks, gathered into runs: [{ key, label, color, tasks }].
  * Without a `clusterBy` you get one unlabelled run: the plain column.
  *
- * Runs are ordered by what the axis means: priority most urgent first (that IS
- * the order), tags alphabetically with "no tag" last since it is the leftovers
- * rather than a group. Inside a run, the manual order the board maintains is
+ * Runs are ordered by what the axis means, which for priority IS the order:
+ * most urgent first. Inside a run, the manual order the board maintains is
  * preserved.
  */
 export function clusterTasks(tasks, clusterBy, { sort = compareByPosition } = {}) {
@@ -847,30 +833,19 @@ export function clusterTasks(tasks, clusterBy, { sort = compareByPosition } = {}
 
   const runs = new Map();
   for (const task of sorted) {
-    const key = clusterKeyOf(task, clusterBy);
+    const key = task.priority;
     if (!runs.has(key)) runs.set(key, []);
     runs.get(key).push(task);
   }
 
-  const entries = [...runs.entries()];
-  if (clusterBy === 'priority') {
-    entries.sort((a, b) => (PRIORITY_RANK[a[0]] ?? 9) - (PRIORITY_RANK[b[0]] ?? 9));
-  } else {
-    entries.sort((a, b) => {
-      if (a[0] === NO_TAG) return 1;
-      if (b[0] === NO_TAG) return -1;
-      return String(a[0]).localeCompare(String(b[0]));
-    });
-  }
-
-  return entries.map(([key, list]) => ({
-    key,
-    label: key === NO_TAG ? 'No tag'
-      : clusterBy === 'priority' ? priorityMeta(key).label
-      : key,
-    color: clusterBy === 'priority' ? priorityMeta(key).color : null,
-    tasks: list,
-  }));
+  return [...runs.entries()]
+    .sort((a, b) => (PRIORITY_RANK[a[0]] ?? 9) - (PRIORITY_RANK[b[0]] ?? 9))
+    .map(([key, list]) => ({
+      key,
+      label: priorityMeta(key).label,
+      color: priorityMeta(key).color,
+      tasks: list,
+    }));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

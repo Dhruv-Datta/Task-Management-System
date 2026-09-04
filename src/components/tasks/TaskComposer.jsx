@@ -14,8 +14,8 @@
 
   Enter in the title creates. "Create more" keeps the box open with the same
   dates and status, so a planning session is one sitting. Only the title,
-  notes, checklist and tag are cleared, because those are the parts that
-  describe this task rather than the batch.
+  notes and checklist are cleared, because those are the parts that describe
+  this task rather than the batch.
 
   `lists` is the exception to "a task belongs to the list you are looking at":
   the overview looks at all of them, so when it opens this box it hands over the
@@ -33,7 +33,7 @@ import {
 import { formatDateLong } from '@/lib/dates';
 import {
   DailyPriorityToggle, DatePicker, EstimatePicker, HardToggle, ListPicker, PriorityIcon,
-  PriorityPicker, StatusChip, StatusPicker, TagPicker,
+  PriorityPicker, StatusChip, StatusPicker,
 } from './TaskPickers';
 import {
   DialogShell, Field, MainColumn, NotesInput, Rail, SectionTitle, SubtaskChecklist, SubtaskCount,
@@ -47,7 +47,6 @@ export default function TaskComposer({ defaults = {}, lists = null, planning = f
   const [priority, setPriority] = useState(defaults.priority || DEFAULT_PRIORITY);
   const [dueDate, setDueDate] = useState(defaults.due_date || null);
   const [hard, setHard] = useState(!!defaults.is_hard);
-  const [tag, setTag] = useState(defaults.tag || '');
   const [estimate, setEstimate] = useState(defaults.estimated_minutes ?? null);
   const [plannedDate, setPlannedDate] = useState(defaults.planned_date || null);
   // Which half of the day it lands in, asked here for the same reason it is
@@ -88,7 +87,6 @@ export default function TaskComposer({ defaults = {}, lists = null, planning = f
       priority,
       due_date: dueDate,
       is_hard: hard,
-      tag,
       estimated_minutes: estimate,
       planned_date: plannedDate,
       daily_priority: dailyPriority,
@@ -98,7 +96,6 @@ export default function TaskComposer({ defaults = {}, lists = null, planning = f
     if (!createMore) { onClose(); return; }
     setTitle('');
     setNotes('');
-    setTag(defaults.tag || '');
     setHard(false);
     setSubtasks([]);
     setNewSubtask('');
@@ -203,12 +200,6 @@ export default function TaskComposer({ defaults = {}, lists = null, planning = f
 
         <Field label="Difficulty">
           <HardToggle value={hard} onToggle={setHard} size={14} showLabel />
-        </Field>
-
-        <Field label="Tag">
-          <span className="-ml-0.5">
-            <TagPicker value={tag} onSelect={setTag} align="left" />
-          </span>
         </Field>
 
         {/* Planning fields, only where planning is the job: see the same gate

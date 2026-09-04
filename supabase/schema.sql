@@ -110,9 +110,6 @@ CREATE TABLE IF NOT EXISTS public.tasks (
   scheduled_start    text,
   scheduled_minutes  integer,
 
-  -- One free-text tag: a project, a context, an area of life.
-  tag           text,
-
   -- The checklist inside a task: [{ id, title, done }]
   subtasks      jsonb NOT NULL DEFAULT '[]'::jsonb,
 
@@ -154,6 +151,17 @@ ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS scheduled_minutes integer;
 -- Added for the day's planning flow: the "this one is going to be a fight" flag
 -- that puts a task into Attention a week out.
 ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS is_hard boolean NOT NULL DEFAULT false;
+
+-- REMOVED: `tag`, one free-text word per task. Nothing wrote one worth the row
+-- it took up in the editor, so the field, the board's group-by-tag and the chip
+-- are gone from the app and nothing reads the column any more.
+--
+-- The index goes, since an index nothing queries is only write cost. The column
+-- itself is left alone, because this file does not drop data: it is inert, and
+-- if you want the words gone as well, run this once, by hand:
+--
+--   ALTER TABLE public.tasks DROP COLUMN IF EXISTS tag;
+DROP INDEX IF EXISTS public.idx_tasks_tag;
 
 
 -- Constrain the enum-like columns. The app normalizes on the way in as well;
@@ -201,9 +209,6 @@ CREATE INDEX IF NOT EXISTS idx_tasks_due
 CREATE INDEX IF NOT EXISTS idx_tasks_hard
   ON public.tasks (due_date)
   WHERE is_hard;
--- Everything carrying one tag, across every list.
-CREATE INDEX IF NOT EXISTS idx_tasks_tag
-  ON public.tasks (lower(tag));
 -- Today: the day you chose, across every list. Partial, because the column is
 -- null for almost every row and the only question ever asked of it is "what did
 -- I plan for this day".

@@ -11,7 +11,7 @@
 
 import { CalendarArrowDown, Plus } from 'lucide-react';
 import { priorityMeta } from '@/lib/tasks';
-import { DateChip, DatePicker, HardToggle, PriorityPicker, TagChip } from '@/components/tasks/TaskPickers';
+import { DateChip, DatePicker, HardToggle, PriorityPicker } from '@/components/tasks/TaskPickers';
 
 /*
   The surface.
@@ -211,7 +211,6 @@ export function AgendaRow({
       </span>
 
       <span onClick={stop} className={`flex items-center gap-1 flex-shrink-0 ${TITLE_LINE}`}>
-        {task.tag && <TagChip tag={task.tag} dense className="hidden xl:inline-flex" />}
 
         {/*
           Triage, in one click. A late task almost never wants a date picker; it

@@ -91,16 +91,16 @@ test('hard is a boolean and defaults to false, whatever the row says', () => {
   assert.equal(mk({ id: '1', is_hard: null }).is_hard, false);
 });
 
-test('filtering: priority, query, completed, tag', () => {
+test('filtering: priority, query, completed', () => {
   const tasks = [
-    mk({ id: 'a', title: 'Buy milk', priority: 'urgent', tag: 'errands' }),
-    mk({ id: 'b', title: 'File taxes', priority: 'low', tag: 'money' }),
+    mk({ id: 'a', title: 'Buy milk', priority: 'urgent', notes: 'errands' }),
+    mk({ id: 'b', title: 'File taxes', priority: 'low' }),
     mk({ id: 'c', title: 'Old thing', status: 'completed' }),
   ];
   assert.deepEqual(filterTasks(tasks, { priority: 'urgent' }).map(t => t.id), ['a']);
   assert.deepEqual(filterTasks(tasks, { query: 'milk' }).map(t => t.id), ['a']);
+  // The query reads the notes as well as the title.
   assert.deepEqual(filterTasks(tasks, { query: 'ERRANDS' }).map(t => t.id), ['a']);
-  assert.deepEqual(filterTasks(tasks, { tag: 'MONEY' }).map(t => t.id), ['b']);
   assert.deepEqual(filterTasks(tasks, { showCompleted: true }).map(t => t.id), ['a', 'b', 'c']);
 });
 
@@ -173,10 +173,14 @@ test('grouping by list with no lists yet leaves nothing behind', () => {
   assert.deepEqual(byList[0].tasks.map(t => t.id), ['a']);
 });
 
-test('board clustering by tag puts "no tag" last', () => {
-  const tasks = [mk({ id: 'a', tag: 'zoo' }), mk({ id: 'b' }), mk({ id: 'c', tag: 'apples' })];
-  const runs = clusterTasks(tasks, 'tag');
-  assert.deepEqual(runs.map(r => r.label), ['apples', 'zoo', 'No tag']);
+test('board clustering by priority runs most urgent first', () => {
+  const tasks = [mk({ id: 'a', priority: 'low' }), mk({ id: 'b', priority: 'urgent' }), mk({ id: 'c', priority: 'low' })];
+  const runs = clusterTasks(tasks, 'priority');
+  assert.deepEqual(runs.map(r => r.label), ['Urgent', 'Low']);
+  assert.deepEqual(runs.flatMap(r => r.tasks.map(t => t.id)), ['b', 'a', 'c']);
+
+  // No axis: one unlabelled run, which is the plain column.
+  assert.deepEqual(clusterTasks(tasks, null).map(r => r.label), [null]);
 });
 
 test('summary counts what is on screen', () => {
@@ -284,11 +288,10 @@ test('ordering: open before done, then priority, then due date', () => {
 
 test('write allow-list ignores anything it does not name', () => {
   const row = sanitizeWritableFields({
-    title: '  Do it  ', tag: ' Kitchen ', status: 'completed',
+    title: '  Do it  ', status: 'completed',
     id: 'nope', version: 99, created_at: 'nope', position: 3,
   });
   assert.equal(row.title, 'Do it');
-  assert.equal(row.tag, 'Kitchen');          // kept as typed, only trimmed
   assert.equal(row.done, true);              // status owns done + completed_at
   assert.ok(row.completed_at);
   assert.equal(row.position, 3);

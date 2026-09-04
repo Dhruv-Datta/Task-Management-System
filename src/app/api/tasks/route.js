@@ -19,16 +19,13 @@ import { sanitizeWritableFields } from '@/lib/taskWrites';
 const TABLE = 'tasks';
 
 /*
-  GET: the tasks, or a slice of them:
-    ?list_id=  one list.
-    ?tag=      one tag's work, across every list.
+  GET: the tasks, or one list's worth of them with ?list_id=.
 */
 export async function GET(req) {
   try {
     const { supabase } = await getDb();
     const { searchParams } = new URL(req.url);
     const listId = searchParams.get('list_id');
-    const tag = searchParams.get('tag')?.trim();
 
     let query = supabase
       .from(TABLE)
@@ -36,7 +33,6 @@ export async function GET(req) {
       .order('position', { ascending: true })
       .order('created_at', { ascending: true });
 
-    if (tag) query = query.ilike('tag', tag);
     if (listId) query = query.eq('list_id', listId);
 
     const { data, error } = await query;

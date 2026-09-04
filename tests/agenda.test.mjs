@@ -235,7 +235,7 @@ test('the catalog is every open task by project, and can hide what is already ch
   const tasks = [
     mk({ id: 'a', list_id: 'work', title: 'Ratings research' }),
     planned({ id: 'b', list_id: 'work', title: 'Already on today' }),
-    mk({ id: 'c', list_id: 'home', title: 'Buy milk', tag: 'errand' }),
+    mk({ id: 'c', list_id: 'home', title: 'Buy milk', notes: 'errand' }),
     mk({ id: 'done', list_id: 'home', status: 'completed' }),
     // Owed, never planned: on the day all the same (see `isOnDay`).
     mk({ id: 'owed', list_id: 'home', title: 'Late already', due_date: today }),

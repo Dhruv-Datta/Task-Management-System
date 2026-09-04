@@ -12,7 +12,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, CalendarDays, ChevronDown, Eye, EyeOff, Flag, Hash, Star, Timer } from 'lucide-react';
+import { Check, CalendarDays, ChevronDown, Eye, EyeOff, Flag, Star, Timer } from 'lucide-react';
 import {
   DAILY_PRIORITIES, ESTIMATES, PRIORITIES, STATUSES, dateMeta, estimateMeta,
   normalizeDailyPriority, priorityMarks, priorityMeta, statusMeta,
@@ -382,9 +382,9 @@ const DATE_TONE = {
 /*
   `dense` is the calendar's size. A day column is a seventh of the screen, so a
   chip that fits comfortably on a board card is wide enough there to claim a line
-  of its own, and a card whose tags are four stacked lines reads as clutter. The
-  smaller size is the same chip, just tight enough that a tag and a date share
-  a row.
+  of its own, and a card whose chips are four stacked lines reads as clutter.
+  The smaller size is the same chip, just tight enough that two of them share a
+  row.
 */
 const CHIP_SIZE = {
   normal: 'text-[11.5px] px-2 py-[5px] gap-1',
@@ -588,94 +588,6 @@ export function DatePicker({ value, onSelect, label = 'Due date', align = 'right
               Clear
             </button>
           )}
-        </MenuPortal>
-      )}
-    </>
-  );
-}
-
-// ─── Tag ─────────────────────────────────────────────────────────────────────
-
-/*
-  A tag is one word for what a task is part of: a project, a context, an area
-  of life. One per task, free text, no vocabulary to maintain: you write
-  "kitchen" the first time you need it and the board can gather by it from then
-  on.
-
-  It never truncates (`whitespace-nowrap`, no shrinking): a tag is already the
-  shortest a label gets. Same height and radius as DateChip, so a card's chip row
-  reads as one set of tags rather than three differently-shaped things.
-*/
-export function TagChip({ tag, dense = false, className = '' }) {
-  if (!tag) return null;
-  return (
-    <span
-      title={`Tag: ${tag}`}
-      className={`inline-flex items-center flex-shrink-0 font-semibold tracking-wide leading-none text-gray-600 bg-gray-100 rounded-md whitespace-nowrap ${
-        CHIP_SIZE[dense ? 'dense' : 'normal']
-      } ${className}`}
-    >
-      {tag}
-    </span>
-  );
-}
-
-/** Free-text tag entry. Kept as typed: "Kitchen" and "kitchen" are the same
- *  tag to the filter, and yours to capitalise however you like. */
-export function TagPicker({ value, onSelect, align = 'right' }) {
-  const anchorRef = useRef(null);
-  const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState(value || '');
-
-  const commit = () => {
-    onSelect(draft.trim());
-    setOpen(false);
-  };
-
-  return (
-    <>
-      <span ref={anchorRef} className="inline-flex">
-        <button
-          type="button"
-          /* Seed the draft as the menu opens, so it always starts from what is
-             actually on the task rather than from a half-typed earlier go. */
-          onClick={(e) => { e.stopPropagation(); setDraft(value || ''); setOpen(o => !o); }}
-          className="inline-flex items-center rounded-md hover:opacity-80 transition-opacity"
-          title="Tag"
-        >
-          {value
-            ? <TagChip tag={value} />
-            : <span className="inline-flex items-center gap-1 text-[11px] font-semibold tracking-wide leading-none text-gray-400 border border-dashed border-gray-300 rounded-md px-2 py-1">
-                <Hash size={10} strokeWidth={2.5} />
-                Tag
-              </span>}
-        </button>
-      </span>
-      {open && (
-        <MenuPortal anchorRef={anchorRef} onClose={() => setOpen(false)} align={align} width={200}>
-          <div className="px-2.5 py-2 space-y-2">
-            <input
-              autoFocus
-              value={draft}
-              onChange={e => setDraft(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter') commit();
-                if (e.key === 'Escape') setOpen(false);
-              }}
-              placeholder="kitchen, taxes, gym…"
-              className="w-full text-sm px-2 py-1 border border-gray-200 rounded-lg outline-none focus:ring-1 focus:ring-emerald-500"
-            />
-            <div className="flex items-center gap-1.5">
-              {value && (
-                <button type="button" onClick={() => { onSelect(''); setOpen(false); }} className="text-xs text-red-500 hover:text-red-600">
-                  Clear
-                </button>
-              )}
-              <button type="button" onClick={commit} className="ml-auto text-xs px-2 py-1 bg-gray-900 text-white rounded-lg hover:bg-gray-700 transition-colors">
-                <Check size={12} />
-              </button>
-            </div>
-          </div>
         </MenuPortal>
       )}
     </>

@@ -38,7 +38,7 @@ import {
 import { formatDateLong } from '@/lib/dates';
 import {
   DailyPriorityToggle, DateChip, DatePicker, HardToggle, PriorityIcon,
-  PriorityPicker, StatusChip, StatusPicker, TagPicker,
+  PriorityPicker, StatusChip, StatusPicker,
 } from './TaskPickers';
 import {
   DialogShell, Field, MainColumn, NotesInput, Rail, SectionTitle, SubtaskChecklist, SubtaskCount,
@@ -276,12 +276,6 @@ export default function TaskDetailPanel({ task, list = null, planning = false, o
             size={14}
             showLabel
           />
-        </Field>
-
-        <Field label="Tag">
-          <span className="-ml-0.5">
-            <TagPicker value={task.tag} onSelect={t => onPatch(task.id, { tag: t })} align="left" />
-          </span>
         </Field>
 
         {/*

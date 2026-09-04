@@ -17,8 +17,7 @@
   surfaces that are about doing the work rather than choosing it.
 
   Every CONTROL sits on the title's line, right-aligned, giving up its least
-  important members first as the column narrows (the tag goes, then the
-  estimate). The one thing under the title is the list the task came from: it is
+  important members first as the column narrows (the estimate goes first). The one thing under the title is the list the task came from: it is
   not a control, it is the task describing itself, and a chip for it in among
   the buttons reads as one more thing to press. The title truncates rather than
   wrapping, because a wrapped title puts every row below it at a different
@@ -55,7 +54,7 @@ import { formatDuration } from '@/lib/dates';
 import { DEFAULT_BLOCK_MINUTES, priorityMeta } from '@/lib/tasks';
 import { ListBadge } from '@/components/dashboard/Panel';
 import {
-  DailyPriorityToggle, DateChip, DatePicker, HardToggle, PriorityPicker, StatusPicker, TagChip,
+  DailyPriorityToggle, DateChip, DatePicker, HardToggle, PriorityPicker, StatusPicker,
 } from '@/components/tasks/TaskPickers';
 import { ScheduleChip } from './PlanControls';
 
@@ -186,7 +185,6 @@ export default function TodayRow({
       {/* Right-hand side: everything the row KNOWS, dropping the least
           important first as the column narrows. */}
       <span onClick={stop} className={`flex items-center gap-1 flex-shrink-0 ${TITLE_LINE}`}>
-        {task.tag && <TagChip tag={task.tag} dense className="hidden xl:inline-flex" />}
 
         {task.due_date && (
           <span className="hidden sm:flex items-center mr-1">

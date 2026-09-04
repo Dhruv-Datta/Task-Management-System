@@ -335,8 +335,8 @@ export function attention(tasks, today = todayISO()) {
  *
  * Lists come back in their own order, with their colour, and empty ones are
  * dropped: this is a place to pick from, and a heading over nothing is a row
- * you have to skip past. `query` matches the title, notes and tag, the same
- * fields the /tasks search box reads, so searching means the same thing in both
+ * you have to skip past. `query` matches the title and notes, the same fields
+ * the /tasks search box reads, so searching means the same thing in both
  * places.
  *
  *   excludePlanned  leave out what is already on the day — chosen OR owed (see
@@ -356,7 +356,7 @@ export function taskCatalog(tasks, lists = [], { today = todayISO(), query = '',
     if (task.done) return false;
     if (excludePlanned && isOnDay(task, today)) return false;
     if (!q) return true;
-    return `${task.title} ${task.notes} ${task.tag}`.toLowerCase().includes(q);
+    return `${task.title} ${task.notes}`.toLowerCase().includes(q);
   });
 
   const groups = new Map();

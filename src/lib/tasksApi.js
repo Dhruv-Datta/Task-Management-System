@@ -47,15 +47,12 @@ export async function saveListsMeta({ lists, groups, activeListId }) {
 }
 
 /**
- * A slice of the task list.
- *   { listId }  one list.
- *   { tag }     one tag's work, across every list.
- * Neither returns everything.
+ * A slice of the task list: `{ listId }` is one list, and nothing is
+ * everything.
  */
-export async function fetchTasks({ listId, tag } = {}) {
+export async function fetchTasks({ listId } = {}) {
   const params = new URLSearchParams();
   if (listId) params.set('list_id', listId);
-  if (tag) params.set('tag', tag);
   const qs = params.toString();
   const res = await fetch(qs ? `/api/tasks?${qs}` : '/api/tasks');
   return normalizeTasks(await readJsonOrThrow(res));

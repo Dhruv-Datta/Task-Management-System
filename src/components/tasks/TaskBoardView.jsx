@@ -6,9 +6,9 @@
   the fastest way to answer "what is in review right now".
 
   Grouping happens INSIDE a column, never to the columns themselves: group by
-  priority and the urgent work rises to the top of every column, by tag and one
-  project's work reads as one block. The statuses stay put through all of it:
-  they are the board, and the only axis a drag can change.
+  priority and the urgent work rises to the top of every column. The statuses
+  stay put through all of it: they are the board, and the only axis a drag can
+  change.
 
   Ordering and the cross-column move live in lib/tasks (clusterTasks /
   moveTaskToStatus / finalizeTaskDrag), so this file is the dnd wiring and the
@@ -68,7 +68,7 @@ function RunHeader({ run }) {
 
 function Column({
   status, tasks, runs, onPatch, onOpen, onAdd, showCompleted, onToggleCompleted,
-  vertical = false, showTag = true,
+  vertical = false,
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: columnId(status.key) });
 
@@ -81,7 +81,6 @@ function Column({
           onOpen={onOpen}
           dragHandleProps={dragHandleProps}
           dense={vertical}
-          showTag={showTag}
           compact
         />
       )}
@@ -136,7 +135,7 @@ function Column({
 
 export default function TaskBoardView({
   tasks, clusterBy = null, onPatch, onOpen, onAdd, onDragCommit, showCompleted, onToggleCompleted,
-  vertical = false, showTag = true, reorderable = true,
+  vertical = false, reorderable = true,
 }) {
   const [draftTasks, setDraftTasks] = useState(null);
   const snapshot = useRef(null);
@@ -234,7 +233,6 @@ export default function TaskBoardView({
             showCompleted={showCompleted}
             onToggleCompleted={status.key === 'completed' ? onToggleCompleted : null}
             vertical={vertical}
-            showTag={showTag}
           />
         ))}
       </div>
@@ -268,7 +266,6 @@ export default function TaskBoardView({
                 onPatch={() => {}}
                 onOpen={() => {}}
                 dense={vertical}
-                showTag={showTag}
                 compact
               />
             </div>

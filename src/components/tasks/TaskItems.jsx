@@ -14,7 +14,7 @@
 import { CalendarDays, ListChecks, Trash2 } from 'lucide-react';
 import { isOverdue, subtaskProgress } from '@/lib/tasks';
 import {
-  DateChip, DatePicker, HardFlag, PriorityPicker, StatusChip, StatusPicker, TagChip,
+  DateChip, DatePicker, HardFlag, PriorityPicker, StatusChip, StatusPicker,
 } from './TaskPickers';
 
 /*
@@ -96,11 +96,6 @@ export function TaskRow({ task, list = null, showStatus = false, onPatch, onOpen
           {task.title}
         </span>
         <ListTag list={list} tight />
-        {task.tag && (
-          <span className="flex-shrink-0 text-[10.5px] font-bold tracking-wider text-gray-300" title={task.tag}>
-            {task.tag}
-          </span>
-        )}
       </span>
 
       <span className="flex items-center gap-2 flex-shrink-0" onClick={e => e.stopPropagation()}>
@@ -155,15 +150,13 @@ export function TaskRow({ task, list = null, showStatus = false, onPatch, onOpen
   who owns it, when it is owed.
 
     !!  Rewrite the DCF model       ← priority, then the title
-    ◍ Priya  kitchen                ← the owner, named, and the tag
+    ◍ Priya                         ← the list it lives in, named
     3d   2/5                        ← when it's owed, then the subtasks
 
   A name is the one thing on this card that can be any length, so it is the one
-  thing allowed to truncate: the pill gives up width and cuts itself, while the
-  tag beside it never shrinks. A calendar column is a seventh of the screen
-  wide, so that is the difference between "kitchen" and "kit…". They sit adjacent
-  rather than pushed to opposite edges, since a tag alone against the right rule
-  reads as belonging to nothing.
+  thing allowed to truncate: the pill gives up width and cuts itself rather than
+  widening the card. A calendar column is a seventh of the screen wide, so that
+  is the difference between "kitchen" and "kit…".
 
   No status on the card. On the board the column the card sits in IS its status;
   in the calendar the columns are days, and a status you can't read off the
@@ -171,12 +164,10 @@ export function TaskRow({ task, list = null, showStatus = false, onPatch, onOpen
 
   `dense` is the calendar asking for its own size: a board column is roomy and a
   day column is a seventh of the screen, and the same chips that sit comfortably
-  on one stack up one-per-line on the other. `showTag` exists for a future view
-  that is already filtered to one tag, where the chip would say the same word on
-  every card.
+  on one stack up one-per-line on the other.
 */
 export function TaskCard({
-  task, list = null, onPatch, onOpen, dragHandleProps, compact = false, dense = false, showTag = true,
+  task, list = null, onPatch, onOpen, dragHandleProps, compact = false, dense = false,
 }) {
   const late = isOverdue(task);
   const hard = task.is_hard && !task.done;
@@ -206,13 +197,12 @@ export function TaskCard({
         </span>
       </div>
 
-      {/* What it's part of: the list it lives in (only when the view spans more
-          than one), then its tag. Drawn only when there is something to say,
-          since an empty row here would push the dates down for no reason. */}
-      {(list || (showTag && task.tag)) && (
+      {/* What it's part of: the list it lives in, and only when the view spans
+          more than one. Drawn only when there is something to say, since an
+          empty row here would push the dates down for no reason. */}
+      {list && (
         <div className="flex items-center gap-2 mt-2 min-w-0">
           <ListTag list={list} />
-          {showTag && task.tag && <TagChip tag={task.tag} dense={dense} />}
         </div>
       )}
 
