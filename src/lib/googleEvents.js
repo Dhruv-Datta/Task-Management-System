@@ -162,9 +162,81 @@ export function wallClock(instant, timeZone) {
 */
 export function eventColor(raw, calendar = {}, palette = {}) {
   const label = eventLabel(raw, calendar);
-  if (label?.backgroundColor) return label.backgroundColor;
+  if (label?.backgroundColor) return asDrawn(label.backgroundColor);
   const own = raw?.colorId && palette?.event?.[raw.colorId]?.background;
-  return own || calendar.backgroundColor || EXTERNAL_FALLBACK_COLOR;
+  return asDrawn(own || calendar.backgroundColor || EXTERNAL_FALLBACK_COLOR);
+}
+
+/*
+  THE TWO PALETTES, and why an event off Google arrives the wrong red.
+
+  Google draws its calendar in one set of colours and answers about it in
+  another. `/colors` and a calendar's own `backgroundColor` still return the
+  pastel table from 2011 — Tomato is #dc2127 there, a brick red — while the
+  calendar you are actually looking at has drawn that same colour, under that
+  same name, as #d50000 for years. Neither is wrong and nothing is broken: they
+  are the same names with two generations of hexes, and the API kept the old
+  ones so that everything which had already stored them kept working.
+
+  This page is a PICTURE OF THE CALENDAR YOU ARE LOOKING AT, so it has to use
+  the colours you are looking at, or the point of drawing your real events in
+  their real colours — recognising Thursday at a glance — is lost to a shade.
+
+  Keyed by hex rather than by colour id, so it corrects every source at once:
+  the event palette, the colour of the calendar an event lives on, and the
+  written-down copy in googleCalendar.js all pass through here. Anything it does
+  not recognise comes back exactly as it arrived — a label's colour is already
+  the modern set, and a colour Google adds next year should be drawn as Google
+  sends it rather than guessed at.
+*/
+const AS_DRAWN = {
+  // The eleven EVENT colours (/colors → `event`).
+  '#a4bdfc': '#7986cb', // Lavender
+  '#7ae7bf': '#33b679', // Sage
+  '#dbadff': '#8e24aa', // Grape
+  '#ff887c': '#e67c73', // Flamingo
+  '#fbd75b': '#f6bf26', // Banana
+  '#ffb878': '#f4511e', // Tangerine
+  '#46d6db': '#039be5', // Peacock
+  '#e1e1e1': '#616161', // Graphite
+  '#5484ed': '#3f51b5', // Blueberry
+  '#51b749': '#0b8043', // Basil
+  '#dc2127': '#d50000', // Tomato
+
+  // The twenty-four CALENDAR colours (/colors → `calendar`), which an event
+  // with no colour of its own inherits. Same story, a longer table.
+  '#ac725e': '#795548', // Cocoa
+  '#d06b64': '#e67c73', // Flamingo
+  '#f83a22': '#d50000', // Tomato
+  '#fa573c': '#f4511e', // Tangerine
+  '#ff7537': '#ef6c00', // Pumpkin
+  '#ffad46': '#f09300', // Mango
+  '#42d692': '#009688', // Eucalyptus
+  '#16a765': '#0b8043', // Basil
+  '#7bd148': '#7cb342', // Pistachio
+  '#b3dc6c': '#c0ca33', // Avocado
+  '#fbe983': '#e4c441', // Citron
+  '#fad165': '#f6bf26', // Banana
+  '#92e1c0': '#33b679', // Sage
+  '#9fe1e7': '#039be5', // Peacock
+  '#9fc6e7': '#4285f4', // Cobalt
+  '#4986e7': '#3f51b5', // Blueberry
+  '#9a9cff': '#7986cb', // Lavender
+  '#b99aff': '#b39ddb', // Wisteria
+  '#c2c2c2': '#616161', // Graphite
+  '#cabdbf': '#a79b8e', // Birch
+  '#cca6ac': '#ad1457', // Beetroot
+  '#f691b2': '#d81b60', // Cherry Blossom
+  '#cd74e6': '#8e24aa', // Grape
+  '#a47ae2': '#9e69af', // Amethyst
+};
+
+/**
+ * A colour Google reported, as Google actually draws it. A hex it does not know
+ * is its own answer, so this can only ever correct a colour, never invent one.
+ */
+export function asDrawn(hex) {
+  return AS_DRAWN[String(hex || '').trim().toLowerCase()] || hex;
 }
 
 /** The label an event carries, if it carries one this calendar still defines. */

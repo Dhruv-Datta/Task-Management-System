@@ -50,7 +50,9 @@
 
 import { useDraggable } from '@dnd-kit/core';
 import { ArrowDownToLine, ArrowUpToLine, Check, GripVertical, X } from 'lucide-react';
-import { priorityMeta } from '@/lib/tasks';
+import { TASK_COLOR, inkOn } from '@/lib/colors';
+import { formatDuration } from '@/lib/dates';
+import { DEFAULT_BLOCK_MINUTES, priorityMeta } from '@/lib/tasks';
 import { ListBadge } from '@/components/dashboard/Panel';
 import {
   DailyPriorityToggle, DateChip, DatePicker, HardToggle, PriorityPicker, StatusPicker, TagChip,
@@ -68,6 +70,43 @@ import { ScheduleChip } from './PlanControls';
   below, which is what a description does.
 */
 const TITLE_LINE = 'h-[18px]';
+
+/*
+  THE TASK ITSELF, IN FLIGHT: what is drawn under the cursor between the grip
+  and the drop (the page's DragOverlay renders it).
+
+  A narrow card rather than a copy of the row. The row is as wide as the panel
+  it lives in and carries eight controls, none of which you can press while you
+  are holding it, and a full-width strip of buttons dragged across the timeline
+  covers the hours you are aiming at. So the thing in your hand is the two lines
+  the BLOCK will have once it lands — what it is, and how long it takes — which
+  makes the drop a preview of the result rather than a copy of the source.
+
+  It is only what the task looks like ON ITS WAY to the calendar. The moment the
+  pointer crosses onto the grid this stops being drawn and Timeline's DropGhost
+  takes over, drawing the same task at the size and in the place it is about to
+  occupy — one thing in flight the whole way, answering the question that is
+  actually live at each end of the trip. The row it came from stays in the list,
+  dimmed: the drag gives the task a time, it does not take it off the day.
+*/
+export function TaskDragCard({ task, list }) {
+  const minutes = task.scheduled_minutes || task.estimated_minutes || DEFAULT_BLOCK_MINUTES;
+  // The card is the block it is about to become, so it is drawn the way the
+  // timeline draws one: solid, in the one red every task on the day is.
+  const ink = inkOn(TASK_COLOR);
+
+  return (
+    <div
+      style={{ backgroundColor: TASK_COLOR, color: ink }}
+      className="w-[230px] overflow-hidden rounded-md px-2 py-[3px] shadow-lg shadow-gray-900/25"
+    >
+      <p className="truncate text-[12px] font-semibold leading-[15px]">{task.title}</p>
+      <p className="truncate text-[11px] leading-[14px] tabular-nums" style={{ opacity: 0.85 }}>
+        {formatDuration(minutes)}{list ? ` · ${list.name}` : ''}
+      </p>
+    </div>
+  );
+}
 
 export default function TodayRow({
   task, list, optional = false, timing = true, completable = true, showStatus = true,

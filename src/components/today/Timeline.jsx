@@ -84,6 +84,7 @@ import {
   DAY_WINDOW_END, MINUTES_PER_DAY, clockToMinutes, dayMinutes, formatClock, formatClockRange,
   formatHourLabel,
 } from '@/lib/dates';
+import { TASK_COLOR, inkOn } from '@/lib/colors';
 import { Panel, PanelHead } from '@/components/dashboard/Panel';
 
 /** One minute, one pixel: the arithmetic and the drawing are the same numbers. */
@@ -91,6 +92,23 @@ export const PX_PER_MINUTE = 1;
 
 /** The width of the hour rail down the left. */
 const GUTTER = 52;
+
+/*
+  The two gaps that make a wall of blocks read as separate things.
+
+  RAIL_PAD holds the blocks clear of the rule the hours hang off, so the grid
+  has an edge rather than the colour running into the numbers. BLOCK_GAP is a
+  single pixel off the bottom of every block: back to back, a 7:30 and an 8:15
+  would otherwise meet as one unbroken band of colour, and the hairline between
+  them is what says there are two.
+*/
+const RAIL_PAD = 8;
+const BLOCK_GAP = 1;
+
+/** The colour a commitment of your own is drawn in — no list, so no list
+    colour. Neutral on purpose: it is the shape of the day rather than a
+    thing you chose, the same job Google gives its graphite. */
+const COMMITMENT_COLOR = '#64748b';
 
 /** The grid every gesture lands on, and the smallest block one can leave behind. */
 const SNAP = 15;
@@ -109,9 +127,48 @@ const NEW_EVENT_MINUTES = 60;
 const snap = minutes => Math.round(minutes / SNAP) * SNAP;
 const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
 
+/*
+  WHERE A BLOCK SITS: the same four numbers for a task, a commitment of your own
+  and somebody else's meeting, so the three cannot drift apart. Overlapping
+  blocks split the width between them — `column` of `columns`, worked out in
+  lib/agenda — and each keeps its own gap at the bottom.
+*/
+function blockBox({ start, minutes, column, columns }, origin) {
+  const lane = `((100% - ${GUTTER + RAIL_PAD}px) / ${columns})`;
+  return {
+    top: (start - origin) * PX_PER_MINUTE,
+    height: Math.max(MIN_BLOCK_MINUTES * PX_PER_MINUTE - BLOCK_GAP, minutes * PX_PER_MINUTE - BLOCK_GAP),
+    left: `calc(${GUTTER + RAIL_PAD}px + ${lane} * ${column})`,
+    width: `calc(${lane} - ${BLOCK_GAP}px)`,
+  };
+}
+
+/*
+  HOW A BLOCK IS SET, decided by how tall it is.
+
+  A quarter of an hour is fourteen pixels and the type that fits a half hour
+  does not fit that, so the type shrinks to the box rather than the box hiding
+  the type — a smaller name is still a name, a clipped one is a smudge. Three
+  sizes, which is all the shapes there are: a strip that holds one line, a half
+  hour that holds the name over the times tightly, and three quarters and up,
+  which has room to breathe.
+*/
+const TYPE = {
+  tight: { pad: 'px-1.5 py-0',     title: 'text-[10px] leading-[13px]', time: 'text-[10px] leading-[13px]' },
+  snug:  { pad: 'px-1.5 py-[1px]', title: 'text-[11px] leading-[13px]', time: 'text-[10px] leading-[12px]' },
+  roomy: { pad: 'px-2 py-[3px]',   title: 'text-[12px] leading-[15px]', time: 'text-[11px] leading-[14px]' },
+};
+const typeFor = height => (height < 22 ? TYPE.tight : height < 40 ? TYPE.snug : TYPE.roomy);
+
 // ─────────────────────────────────────────────────────────────────────────────
 
-function HourLine({ minute, origin, major }) {
+/*
+  One hour: its name in the rail, and the rule it starts on running the width of
+  the day. Every hour is drawn the same weight — an emphasis every second hour
+  turns the rail into a pattern to decode, and the numbers are already there to
+  be read.
+*/
+function HourLine({ minute, origin }) {
   return (
     <div
       className="absolute left-0 right-0 flex items-start pointer-events-none"
@@ -119,14 +176,57 @@ function HourLine({ minute, origin, major }) {
     >
       <span
         style={{ width: GUTTER }}
-        className={`shrink-0 -mt-[7px] pr-2 text-right text-[10px] font-semibold tabular-nums ${
-          major ? 'text-gray-400' : 'text-gray-300'
-        }`}
+        className="shrink-0 -mt-[6px] pr-2.5 text-right text-[10px] font-medium tabular-nums text-gray-500"
       >
         {formatHourLabel(minute)}
       </span>
-      <span className="flex-1 h-px bg-gray-100" />
+      <span className="flex-1 h-px bg-gray-200/80" />
     </div>
+  );
+}
+
+/*
+  THE TWO LINES a block carries, at the size its height allows.
+
+  Shared by all three things drawn on this grid — a task, somebody else's
+  meeting, and the block you are in the middle of putting down — because they
+  are the same object seen at different moments, and the moment a preview stops
+  looking exactly like the thing it previews is the moment it stops being one.
+
+  `strong` is the in-flight state: the times go bold and full-strength, because
+  while something is moving the clock is what you are reading rather than what
+  you are checking. On a strip, where there is only ever one line, it replaces
+  the name with the range for the same reason.
+*/
+function BlockFace({ title, start, minutes, type, strong = false, action = null }) {
+  const range = formatClockRange(start, minutes);
+
+  if (type === TYPE.tight) {
+    return (
+      <div className="flex items-start gap-1">
+        <span className={`flex-1 min-w-0 truncate ${type.title} ${
+          strong ? 'font-bold tabular-nums' : 'font-semibold'
+        }`}>
+          {strong ? range : `${title}, ${formatClock(start)}`}
+        </span>
+        {action}
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="flex items-start gap-1">
+        <span className={`flex-1 min-w-0 font-semibold truncate ${type.title}`}>{title}</span>
+        {action}
+      </div>
+      <div
+        style={{ opacity: strong ? 1 : 0.85 }}
+        className={`tabular-nums truncate ${type.time} ${strong ? 'font-bold' : ''}`}
+      >
+        {range}
+      </div>
+    </>
   );
 }
 
@@ -150,7 +250,7 @@ function HourLine({ minute, origin, major }) {
   offset back. Absolute rather than incremental, so a mid-drag scroll (which
   moves the canvas but not the cursor) lands where you are pointing.
 */
-function Block({ block, origin, list, toMinute, autoScroll, onOpen, onUnschedule, onChange, onEditEvent }) {
+function Block({ block, origin, toMinute, autoScroll, onOpen, onUnschedule, onChange, onEditEvent }) {
   const isTask = block.kind === 'task';
 
   // The geometry while a gesture is running; null when nothing is happening.
@@ -165,9 +265,16 @@ function Block({ block, origin, list, toMinute, autoScroll, onOpen, onUnschedule
   const minutes = draft ? draft.minutes : block.minutes;
   const moving = draft !== null;
 
-  const height = Math.max(MIN_BLOCK_MINUTES, minutes) * PX_PER_MINUTE;
-  const width = `calc((100% - ${GUTTER}px) / ${block.columns})`;
-  const left = `calc(${GUTTER}px + ((100% - ${GUTTER}px) / ${block.columns}) * ${block.column})`;
+  const box = blockBox({ start, minutes, column: block.column, columns: block.columns }, origin);
+  const type = typeFor(box.height);
+
+  /*
+    SOLID, and the same red for every task you own (see TASK_COLOR): the day
+    reads as yours against everybody else's. A commitment of your own is not a
+    task and takes the neutral.
+  */
+  const fill = isTask ? TASK_COLOR : COMMITMENT_COLOR;
+  const ink = inkOn(fill);
 
   /*
     No preventDefault on pointerdown, deliberately. Cancelling it also cancels
@@ -243,12 +350,11 @@ function Block({ block, origin, list, toMinute, autoScroll, onOpen, onUnschedule
     window.addEventListener('pointerup', up);
   };
 
+  const tight = type === TYPE.tight;
+
   // 8px of grab area top and bottom: big enough to hit, small enough that the
   // middle of a 30-minute block is still the block.
   const edgeClass = 'absolute left-0 right-0 h-[8px] cursor-ns-resize z-10';
-  const edgeBar = `mx-auto w-8 h-[3px] rounded-full bg-gray-400/70 transition-opacity ${
-    moving ? 'opacity-0' : 'opacity-0 group-hover/block:opacity-100'
-  }`;
 
   return (
     <div
@@ -260,70 +366,59 @@ function Block({ block, origin, list, toMinute, autoScroll, onOpen, onUnschedule
       title={`${block.title} · ${formatClockRange(start, minutes)}`}
       style={{
         position: 'absolute',
-        top: (start - origin) * PX_PER_MINUTE,
-        height,
-        left,
-        width,
+        ...box,
+        backgroundColor: fill,
+        color: ink,
         touchAction: 'none',
-        borderLeftColor: isTask ? (list?.color || '#94a3b8') : undefined,
         zIndex: moving ? 30 : 10,
       }}
-      className={`group/block overflow-hidden rounded-lg px-2 py-1 cursor-grab active:cursor-grabbing select-none transition-shadow ${
-        isTask
-          ? 'bg-white border border-gray-200 border-l-[3px] shadow-sm hover:shadow-md'
-          : 'bg-gray-100 border border-gray-200/80 hover:bg-gray-200/70'
-      } ${moving ? 'shadow-xl ring-2 ring-emerald-400/60' : ''}`}
+      className={`group/block overflow-hidden rounded-md cursor-grab active:cursor-grabbing select-none shadow-sm transition-shadow hover:shadow-md ${type.pad} ${
+        moving ? 'shadow-xl ring-2 ring-white/80' : ''
+      }`}
     >
-      <div className="flex items-start gap-1">
-        <span className={`flex-1 min-w-0 text-[11.5px] font-semibold leading-[14px] truncate ${
-          isTask ? 'text-gray-800' : 'text-gray-600'
-        }`}>
-          {block.title}
-        </span>
-        {isTask && (
+      <BlockFace
+        title={block.title}
+        start={start}
+        minutes={minutes}
+        type={type}
+        strong={moving}
+        action={isTask ? (
           <button
             type="button"
             onPointerDown={e => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); onUnschedule(block.task); }}
             title="Take the time off (stays on today)"
-            className="flex-shrink-0 -mr-1 -mt-0.5 p-0.5 rounded text-gray-300 opacity-0 group-hover/block:opacity-100 hover:text-red-500 hover:bg-red-50 transition-all"
+            style={{ color: ink }}
+            className={`flex-shrink-0 rounded opacity-0 group-hover/block:opacity-75 hover:bg-black/15 transition-all ${
+              tight ? '-mr-0.5' : '-mr-1 -mt-[1px] p-0.5'
+            }`}
           >
-            <X size={11} strokeWidth={2.5} />
+            <X size={tight ? 10 : 11} strokeWidth={2.5} />
           </button>
-        )}
-      </div>
+        ) : null}
+      />
 
-      {/* The times when the block is tall enough to hold them without crowding
-          the name — or always, while it is moving, because that is the one
-          moment they are the thing you are reading. */}
-      {(height >= 34 || moving) && (
-        <div className={`text-[10px] tabular-nums leading-[13px] truncate ${
-          moving ? 'font-bold text-emerald-700' : 'text-gray-400'
-        }`}>
-          {formatClockRange(start, minutes)}
-        </div>
-      )}
-
-      {/* Both edges, like every other calendar, with a hairline handle drawn in
-          them on hover so they are findable without being loud. */}
+      {/* Both edges, like every other calendar, and drawn as NOTHING: the
+          block is small and the day is a wall of them, so two handles appearing
+          on every one you pass the pointer over is clutter on top of the ×
+          that is already there. The zone still announces itself — the cursor
+          turns to ns-resize on the 8px that resize and stays a grab hand on the
+          middle that moves, which is the same signal a window edge gives and
+          costs the block no ink. */}
       <span
         onPointerDown={begin('top')}
         onClick={e => e.stopPropagation()}
         title="Drag to change when it starts"
         style={{ top: 0, touchAction: 'none' }}
-        className={`${edgeClass} flex items-start pt-[1px]`}
-      >
-        <span className={edgeBar} />
-      </span>
+        className={edgeClass}
+      />
       <span
         onPointerDown={begin('bottom')}
         onClick={e => e.stopPropagation()}
         title="Drag to change when it ends"
         style={{ bottom: 0, touchAction: 'none' }}
-        className={`${edgeClass} flex items-end pb-[1px]`}
-      >
-        <span className={edgeBar} />
-      </span>
+        className={edgeClass}
+      />
     </div>
   );
 }
@@ -338,18 +433,22 @@ function Block({ block, origin, list, toMinute, autoScroll, onOpen, onUnschedule
   thing that has no way to move, and then it cannot start moving by accident
   three refactors from now.
 
-  It carries its own colour from Google, as a tint with the full-strength colour
-  down its left edge: strong enough that the calendar you recognise by colour is
-  recognisable here, quiet enough that your own blocks still read as the
-  foreground. It sits UNDER the task blocks (a lower z-index), so a task you
-  drop on top of a meeting is the one you can still see and click — the overlap
-  is the warning, and the thing you can act on should be the thing on top.
+  It is drawn solid in the colour Google draws it in, exactly like everything
+  else on the grid, because a lecture at nine is as real a fact as the hour you
+  gave yourself and half-drawing it would say otherwise — and because the whole
+  point of the colour is that the calendar you recognise by it is recognisable
+  here. What separates yours from theirs is not weight, it is behaviour: yours
+  lift under the pointer and carry an ×, this does nothing at all.
+
+  It sits UNDER the task blocks (a lower z-index), so a task you drop on top of
+  a meeting is the one you can still see and click — the overlap is the warning,
+  and the thing you can act on should be the thing on top.
 */
 function ExternalBlock({ block, origin }) {
   const event = block.external;
-  const height = Math.max(MIN_BLOCK_MINUTES, block.minutes) * PX_PER_MINUTE;
-  const width = `calc((100% - ${GUTTER}px) / ${block.columns})`;
-  const left = `calc(${GUTTER}px + ((100% - ${GUTTER}px) / ${block.columns}) * ${block.column})`;
+  const box = blockBox(block, origin);
+  const type = typeFor(box.height);
+  const ink = inkOn(event.color);
 
   // The tooltip is where the detail lives, since the block itself does nothing
   // when you click it: what it is, when, whose calendar, where — and, for one
@@ -378,83 +477,91 @@ function ExternalBlock({ block, origin }) {
       title={tooltip}
       style={{
         position: 'absolute',
-        top: (block.start - origin) * PX_PER_MINUTE,
-        height,
-        left,
-        width,
-        backgroundColor: `${event.color}1f`,
-        borderColor: `${event.color}55`,
-        borderLeftColor: event.color,
+        ...box,
+        backgroundColor: event.color,
+        color: ink,
         zIndex: 5,
       }}
-      className="overflow-hidden rounded-lg px-2 py-1 border border-l-[3px] select-none cursor-default"
+      className={`overflow-hidden rounded-md select-none cursor-default shadow-sm ${type.pad}`}
     >
-      <span className="block text-[11.5px] font-semibold leading-[14px] truncate text-gray-700">
-        {event.title}
-      </span>
-      {height >= 34 && (
-        <span className="block text-[10px] tabular-nums leading-[13px] truncate text-gray-500">
-          {formatClockRange(block.start, block.minutes)}
-        </span>
-      )}
+      <BlockFace title={event.title} start={block.start} minutes={block.minutes} type={type} />
     </div>
   );
 }
 
 /*
-  WHERE IT WOULD LAND, drawn while you are still holding it.
+  WHERE IT WOULD LAND, drawn while you are still holding it — as THE BLOCK IT IS
+  ABOUT TO BE, not as a sketch of one.
 
-  A dashed outline the size of the block you are about to make, a rule running
-  the width of the day at its top edge, and the time in the gutter where the
-  hour labels are — so the number you are aiming at appears in the column you
-  were already reading. This is the whole of the "did I mean 2:00 or 2:15"
-  problem, answered before you commit rather than after.
+  Same width, same height, same colour, same two lines: a task carried in from
+  the list stops being a card the moment it crosses onto the grid and becomes
+  the hour it is going to occupy, which is the only preview worth having. You
+  are choosing between 2:00 and 2:15 and between a half hour and an hour, and
+  both of those are questions about a SHAPE — a dashed outline in some other
+  colour answers the first one and lies about the second.
+
+  It is snapped to the quarter hour while the pointer is not, so it also does
+  the job the old outline did: what you see is exactly what will be written, a
+  quarter of an hour before you commit to it. The rule and the time in the
+  gutter say the same number in the column you were already reading.
 
   It draws for a task carried in from the list, and for the range you are
-  dragging out on empty canvas. A block already on the grid needs none of it:
-  it moves under the cursor and re-reads its own clock, so a ghost behind it
-  would be the same fact drawn twice.
+  dragging out on empty canvas. A block already on the grid needs none of it: it
+  moves under the cursor and re-reads its own clock, so a ghost behind it would
+  be the same fact drawn twice.
 */
-function DropGhost({ preview, origin }) {
-  const top = (preview.start - origin) * PX_PER_MINUTE;
+function DropGhost({ preview, origin, fill }) {
+  const box = blockBox({ start: preview.start, minutes: preview.minutes, column: 0, columns: 1 }, origin);
+  const type = typeFor(box.height);
 
   return (
-    <div aria-hidden className="absolute left-0 right-0 pointer-events-none z-40" style={{ top }}>
-      <div className="flex items-start">
+    <div aria-hidden className="absolute left-0 right-0 pointer-events-none z-40" style={{ top: box.top }}>
+      <div className="absolute inset-x-0 top-0 flex items-start">
         <span
-          style={{ width: GUTTER }}
-          className="shrink-0 -mt-[8px] pr-2 text-right text-[10px] font-bold tabular-nums text-emerald-700"
+          style={{ width: GUTTER, color: fill }}
+          className="shrink-0 -mt-[6px] pr-2.5 text-right text-[10px] font-bold tabular-nums"
         >
           {formatClock(preview.start)}
         </span>
-        <span className="flex-1 h-px bg-emerald-500/70" />
+        <span className="flex-1 h-px" style={{ backgroundColor: fill }} />
       </div>
 
       <div
         style={{
-          height: Math.max(MIN_BLOCK_MINUTES, preview.minutes) * PX_PER_MINUTE,
-          marginLeft: GUTTER,
+          position: 'absolute',
+          top: 0,
+          left: box.left,
+          width: box.width,
+          height: box.height,
+          backgroundColor: fill,
+          color: inkOn(fill),
         }}
-        className="rounded-lg border-2 border-dashed border-emerald-400 bg-emerald-50/70 px-2 py-1 overflow-hidden"
+        className={`overflow-hidden rounded-md shadow-xl ring-2 ring-white/80 ${type.pad}`}
       >
-        <p className="text-[11.5px] font-semibold leading-[14px] truncate text-emerald-900">
-          {preview.title}
-        </p>
-        <p className="text-[10px] font-bold tabular-nums text-emerald-700 leading-[13px] truncate">
-          {formatClockRange(preview.start, preview.minutes)}
-        </p>
+        <BlockFace
+          title={preview.title}
+          start={preview.start}
+          minutes={preview.minutes}
+          type={type}
+          strong
+        />
       </div>
     </div>
   );
 }
 
 export default function Timeline({
-  timeline, events, nowMinutes, listFor, canvasRef,
+  timeline, events, nowMinutes, canvasRef,
   onOpenTask, onUnschedule, onPlaceTask, onPlaceEvent, onAddEvent, onEditEvent,
   dragPreview = null, sticky = false, maxHeight = 'calc(100vh - 230px)',
   googleControl = null,
 }) {
-  const { setNodeRef, isOver } = useDroppable({ id: 'timeline' });
+  // No `isOver` styling: the canvas used to tint green while something was over
+  // it, which was the only feedback back when the drop preview was a dashed
+  // outline nobody had wired up. The ghost is the whole answer now — it is the
+  // block, in the block's colour, at the minute it will land on — and a green
+  // wash behind it is a second thing saying less.
+  const { setNodeRef } = useDroppable({ id: 'timeline' });
   const scrollRef = useRef(null);
   const canvasEl = useRef(null);
 
@@ -661,11 +768,20 @@ export default function Timeline({
           }}
           onPointerDown={beginCreate}
           style={{ height, touchAction: 'pan-y' }}
-          className={`relative rounded-xl select-none transition-colors ${isOver ? 'bg-emerald-50/40' : ''}`}
+          className="relative rounded-xl select-none"
         >
           {timeline.hours.map(minute => (
-            <HourLine key={minute} minute={minute} origin={origin} major={minute % 120 === 0} />
+            <HourLine key={minute} minute={minute} origin={origin} />
           ))}
+
+          {/* The rule the day hangs off. The hours are a column of numbers and
+              the grid begins where they end, which is a line — without it the
+              blocks float in the same space as the labels. */}
+          <div
+            aria-hidden
+            className="absolute top-0 bottom-0 w-px bg-gray-200 pointer-events-none"
+            style={{ left: GUTTER }}
+          />
 
           {/*
             MIDNIGHT, said out loud.
@@ -693,9 +809,17 @@ export default function Timeline({
             </div>
           )}
 
-          {/* Where you actually are in the day. The one moving thing on the
-              page, and the reason "3h 45m left" is a different sentence at
-              nine in the morning and at four in the afternoon. */}
+          {/*
+            Where you actually are in the day. The one moving thing on the page,
+            and the reason "3h 45m left" is a different sentence at nine in the
+            morning and at four in the afternoon.
+
+            Red, with a dot on the rail, because that is what the line means
+            everywhere else a day is drawn — and it has to win against blocks
+            that are now solid colour themselves, which a green hairline over a
+            teal block does not. The rail says the actual time rather than the
+            word "now": the gutter is a column of times, and this is one.
+          */}
           {nowMinutes !== null && nowMinutes >= timeline.startMinute && nowMinutes <= timeline.endMinute && (
             <div
               aria-hidden
@@ -703,15 +827,30 @@ export default function Timeline({
               style={{ top: (nowMinutes - origin) * PX_PER_MINUTE }}
             >
               <div className="flex items-center">
-                <span className="text-[9.5px] font-bold uppercase tracking-wider text-emerald-600 pr-1.5 text-right" style={{ width: GUTTER }}>
-                  Now
+                <span
+                  style={{ width: GUTTER }}
+                  className="shrink-0 pr-2.5 text-right text-[10px] font-bold tabular-nums text-red-600"
+                >
+                  {formatClock(nowMinutes)}
                 </span>
-                <span className="flex-1 h-[1.5px] bg-emerald-500/70" />
+                <span className="relative flex-1 h-[1.5px] bg-red-500">
+                  <span className="absolute -left-px -top-[4px] w-[10px] h-[10px] rounded-full bg-red-500" />
+                </span>
               </div>
             </div>
           )}
 
-          {ghost && <DropGhost preview={ghost} origin={origin} />}
+          {/* Drawing a range on empty canvas makes a commitment; carrying
+              something in from the list places a task. Two different things,
+              and the ghost is each of them in its own colour rather than a
+              third colour that is neither. */}
+          {ghost && (
+            <DropGhost
+              preview={ghost}
+              origin={origin}
+              fill={drawn ? COMMITMENT_COLOR : TASK_COLOR}
+            />
+          )}
 
           {timeline.blocks.map(block => (block.kind === 'external' ? (
             <ExternalBlock key={block.key} block={block} origin={origin} />
@@ -720,7 +859,6 @@ export default function Timeline({
               key={block.key}
               block={block}
               origin={origin}
-              list={block.kind === 'task' ? listFor(block.task) : null}
               toMinute={toMinute}
               autoScroll={autoScroll}
               onOpen={onOpenTask}

@@ -64,7 +64,10 @@
 */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { DndContext, PointerSensor, pointerWithin, useSensor, useSensors } from '@dnd-kit/core';
+import { createPortal } from 'react-dom';
+import {
+  DndContext, DragOverlay, PointerSensor, pointerWithin, useSensor, useSensors,
+} from '@dnd-kit/core';
 import { dayClock, fromISODate, nowDayMinutes, snapMinutes, todayISO } from '@/lib/dates';
 import { DEFAULT_BLOCK_MINUTES, resolveListsPayload } from '@/lib/tasks';
 import {
@@ -83,6 +86,7 @@ import LoadError from '@/components/tasks/LoadError';
 import WriteError from '@/components/tasks/WriteError';
 import TaskComposer from '@/components/tasks/TaskComposer';
 import TaskDetailPanel from '@/components/tasks/TaskDetailPanel';
+import { OVERLAY_Z } from '@/components/tasks/TaskPickers';
 import AttentionPanel from '@/components/today/AttentionPanel';
 import CalendarStep from '@/components/today/CalendarStep';
 import CommitmentsPanel from '@/components/today/CommitmentsPanel';
@@ -90,6 +94,7 @@ import DayView from '@/components/today/DayView';
 import { GoogleChip, GoogleNotice, GoogleSync } from '@/components/today/GoogleCalendar';
 import PlanFlow from '@/components/today/PlanFlow';
 import ProjectPickerPanel from '@/components/today/ProjectPickerPanel';
+import { TaskDragCard } from '@/components/today/TodayRow';
 import { PX_PER_MINUTE } from '@/components/today/Timeline';
 import { EventDialog, ScheduleDialog } from '@/components/today/DayForms';
 
@@ -97,6 +102,30 @@ import { EventDialog, ScheduleDialog } from '@/components/today/DayForms';
 // would leave open all day. Cheap enough to just re-read when you come back to
 // it, throttled so flicking between tabs isn't a request each time.
 const REFRESH_AFTER_MS = 30_000;
+
+/*
+  Puts the dragged card's TOP-LEFT under the cursor, rather than leaving it
+  wherever in the row you happened to take hold of it.
+
+  The drop minute is read off the cursor (`dropMinutes`), so the cursor is the
+  block's start — and a card hanging half an hour above the line it is about to
+  land on is a drag that reads as if it were aimed somewhere else. Anchored, the
+  card's top edge IS the start of the block, and it comes to rest inside the
+  ghost that says so.
+
+  dnd-kit gives a modifier the transform it was about to apply plus the rect the
+  overlay currently occupies (the row's, at the moment the drag began); the grab
+  offset is the distance from that rect's corner to the pointer that started it.
+*/
+const cursorTopLeft = ({ activatorEvent, draggingNodeRect, transform }) => {
+  const point = activatorEvent?.touches?.[0] ?? activatorEvent;
+  if (!draggingNodeRect || typeof point?.clientX !== 'number') return transform;
+  return {
+    ...transform,
+    x: transform.x + point.clientX - draggingNodeRect.left,
+    y: transform.y + point.clientY - draggingNodeRect.top,
+  };
+};
 
 export default function TodayPage() {
   const { tasks, setTasks, tasksRef, patchTask, removeTask, writeError, setWriteError } = useTaskStore();
@@ -754,8 +783,14 @@ export default function TodayPage() {
 
     A drag with no readout is a guess. Dropping a task on a grid and finding out
     afterwards that you meant 2:00 and got 2:15 is the one interaction here that
-    is genuinely hard to do blind, so the timeline draws the landing spot and
-    says the time while you are still holding it (see Timeline's ghost).
+    is genuinely hard to do blind, so the timeline draws the landing spot — as
+    the block itself, full size and snapped to the quarter hour — while you are
+    still holding it (see Timeline's DropGhost).
+
+    It is also the HANDOVER. While it is set, the pointer is over the grid and
+    the timeline is drawing the block, so the card following the cursor stops
+    being drawn: two copies of the same task in flight, one of them the wrong
+    size, is worse feedback than either alone.
 
     Only for a task dragged IN from the list. A block already on the grid is its
     own preview: it moves under the cursor and re-reads its own clock, so a
@@ -763,7 +798,24 @@ export default function TodayPage() {
   */
   const [dragPreview, setDragPreview] = useState(null);
 
-  const onDragStart = useCallback(() => {
+  /*
+    WHAT is being carried, as opposed to where it would land: the task under
+    the cursor for the whole of the drag, so the DragOverlay at the foot of
+    this file can draw it (see TaskDragCard).
+
+    The id and not the row: the task can be written mid-drag — a status changed
+    in another tab, a refresh landing — and the card should be reading the same
+    task everything else is.
+  */
+  const [dragTaskId, setDragTaskId] = useState(null);
+
+  const dragTask = useMemo(
+    () => (dragTaskId ? tasks.find(t => t.id === dragTaskId) || null : null),
+    [dragTaskId, tasks],
+  );
+
+  const onDragStart = useCallback((event) => {
+    setDragTaskId(event.active.data.current?.taskId ?? null);
     const track = (e) => { pointerRef.current = e.clientY; };
     window.addEventListener('pointermove', track);
     untrackRef.current = () => window.removeEventListener('pointermove', track);
@@ -774,6 +826,7 @@ export default function TodayPage() {
     untrackRef.current = null;
     pointerRef.current = null;
     setDragPreview(null);
+    setDragTaskId(null);
   }, []);
 
   useEffect(() => stopTracking, [stopTracking]);
@@ -831,12 +884,12 @@ export default function TodayPage() {
     const data = event.active.data.current || {};
     const task = tasksRef.current.find(t => t.id === data.taskId);
     if (!task) return;
-    schedule(
+    placeTask(
       task,
-      minutesToClock(start),
+      start,
       task.scheduled_minutes || task.estimated_minutes || DEFAULT_BLOCK_MINUTES
     );
-  }, [dropMinutes, schedule, stopTracking, tasksRef]);
+  }, [dropMinutes, placeTask, stopTracking, tasksRef]);
 
   // ─── Keyboard ──────────────────────────────────────────────────────────────
 
@@ -1071,6 +1124,42 @@ export default function TodayPage() {
             >
               {stepBody()}
             </PlanFlow>
+          )}
+
+          {/*
+            The task under the cursor on its way ACROSS THE PAGE, so what you
+            are moving is visible while you move it and not just at both ends of
+            it. Over the grid it hands over to Timeline's DropGhost, which draws
+            the same task as the block it is about to become — the card is what
+            a task looks like in a list, and once it is over the calendar the
+            useful question is not "what am I holding" but "what hour is this,
+            and how much of it".
+
+            Portalled to <body> for the reason TaskBoardView's overlay is: it
+            is positioned `fixed` from viewport coordinates, and any ancestor
+            carrying a transform — an entrance animation that has finished is
+            enough — becomes the containing block for it, after which the card
+            trails the pointer by that ancestor's offset. Out of the tree it is
+            also out of the page's stacking context, so it says its own depth.
+
+            `dropAnimation={null}`: the default flies the card back to the row
+            it came from, which is the one thing this drag never means. The
+            block appears on the timeline where you let go, so the card has
+            nowhere to travel to — it hands over to the block and goes.
+          */}
+          {typeof document === 'undefined' ? null : createPortal(
+            <DragOverlay
+              dropAnimation={null}
+              modifiers={[cursorTopLeft]}
+              style={{ zIndex: OVERLAY_Z.drag }}
+            >
+              {dragTask && !dragPreview ? (
+                <div className="rotate-1 opacity-95 cursor-grabbing">
+                  <TaskDragCard task={dragTask} list={listFor(dragTask)} />
+                </div>
+              ) : null}
+            </DragOverlay>,
+            document.body,
           )}
         </DndContext>
       )}

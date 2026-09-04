@@ -30,7 +30,7 @@ import Timeline from './Timeline';
 import TodayRow from './TodayRow';
 
 export default function CalendarStep({
-  day, timeline, events, nowMinutes, listFor, canvasRef,
+  day, timeline, events, nowMinutes, listFor, canvasRef, dragPreview,
   onPatch, onOpen, onSchedule, onRemoveFromToday, onSetHalf,
   onUnschedule, onPlaceTask, onPlaceEvent, onAddEvent, onEditEvent,
   googleControl = null,
@@ -44,7 +44,6 @@ export default function CalendarStep({
         timeline={timeline}
         events={events}
         nowMinutes={nowMinutes}
-        listFor={listFor}
         canvasRef={canvasRef}
         onOpenTask={onOpen}
         onUnschedule={onUnschedule}
@@ -52,6 +51,7 @@ export default function CalendarStep({
         onPlaceEvent={onPlaceEvent}
         onAddEvent={onAddEvent}
         onEditEvent={onEditEvent}
+        dragPreview={dragPreview}
         googleControl={googleControl}
         maxHeight="calc(100vh - 300px)"
       />

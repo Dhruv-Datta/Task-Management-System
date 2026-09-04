@@ -17,7 +17,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  EXTERNAL_FALLBACK_COLOR, MIN_EXTERNAL_MINUTES, TASK_ID_PROPERTY, dayPushItems, daySignature,
+  EXTERNAL_FALLBACK_COLOR, MIN_EXTERNAL_MINUTES, TASK_ID_PROPERTY, asDrawn, dayPushItems, daySignature,
   externalFromGoogle, isValidTimeZone, itemSignature, normalizeExternal, normalizeExternals,
   normalizePushItems, pushSignature, wallClock,
 } from '../src/lib/googleEvents.js';
@@ -111,6 +111,31 @@ test('a label beats the event’s own colour, which beats the calendar’s', () 
 
   const plain = read(timed('2026-09-03T12:00:00', '2026-09-03T13:00:00'));
   assert.equal(plain.color, calendar.backgroundColor);
+});
+
+/*
+  THE ONE THAT ARRIVES THE WRONG RED. Google answers with the palette it shipped
+  in 2011 and has drawn the Material one for years, so the Tomato its API calls
+  #dc2127 is the #d50000 sitting on the screen next to this one.
+*/
+test('a colour is drawn the way Google draws it, not the way its API names it', () => {
+  assert.equal(read(timed('2026-09-03T09:00:00', '2026-09-03T10:00:00', { colorId: '11' })).color, '#d50000');
+
+  // A calendar's own colour comes off the same old table and gets the same fix.
+  const inherited = externalFromGoogle(
+    timed('2026-09-03T09:00:00', '2026-09-03T10:00:00'),
+    { date: DATE, timeZone: TZ, calendar: { id: 'x', backgroundColor: '#f83a22' }, palette }
+  );
+  assert.equal(inherited.color, '#d50000');
+
+  // Case is Google's business, not ours.
+  assert.equal(asDrawn('#DC2127'), '#d50000');
+
+  // A colour the table does not know is its own answer: correcting a colour is
+  // the whole job, and inventing one is not.
+  assert.equal(asDrawn('#123456'), '#123456');
+  assert.equal(asDrawn('#d50000'), '#d50000');
+  assert.equal(asDrawn(null), null);
 });
 
 test('the colour is the event’s own, then the calendar’s, then a fallback', () => {

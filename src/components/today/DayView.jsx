@@ -104,7 +104,7 @@ function DayTaskRow({ task, list, onPatch, onOpen }) {
 
 export default function DayView({
   day, dateLine, summary, timeline, events, nowMinutes, listFor, canvasRef, refreshing,
-  onRefresh, onReplan, onPatch, onOpen, onUnschedule, onPlaceTask, onPlaceEvent,
+  dragPreview, onRefresh, onReplan, onPatch, onOpen, onUnschedule, onPlaceTask, onPlaceEvent,
   onAddEvent, onEditEvent, googleControl = null, googleSync = null,
 }) {
   // Priority order, not plan order: `compareTasks` is priority then due date,
@@ -184,7 +184,6 @@ export default function DayView({
           timeline={timeline}
           events={events}
           nowMinutes={nowMinutes}
-          listFor={listFor}
           canvasRef={canvasRef}
           onOpenTask={onOpen}
           onUnschedule={onUnschedule}
@@ -192,6 +191,7 @@ export default function DayView({
           onPlaceEvent={onPlaceEvent}
           onAddEvent={onAddEvent}
           onEditEvent={onEditEvent}
+          dragPreview={dragPreview}
           googleControl={googleControl}
           sticky={false}
         />

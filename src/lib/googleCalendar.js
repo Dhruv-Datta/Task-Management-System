@@ -153,6 +153,12 @@ async function callGoogle(supabase, path, { method = 'GET', params, body, retryO
   written down here as well. The live table still wins — it is Google's to
   change and this is a copy — but a copy means a day never loses its colours to
   one failed request, and the commonest case needs no second round trip at all.
+
+  These are the hexes the API REPORTS, which are not the hexes the calendar
+  DRAWS: this is the 2011 palette, Tomato and all, exactly as /colors still
+  answers. `asDrawn` in googleEvents.js is what turns them into the colours on
+  the screen, and it runs over the live table and this copy alike — so leave
+  these as Google's, and correct them there.
 */
 const FALLBACK_EVENT_COLORS = {
   1: { background: '#a4bdfc' },   // Lavender
