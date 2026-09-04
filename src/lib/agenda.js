@@ -36,7 +36,7 @@ import {
   DEFAULT_BLOCK_MINUTES, UNKNOWN_LIST, compareTasks, isOverdue, isOwedToday,
   normalizeDailyPriority, normalizeEstimate,
 } from './tasks.js';
-import { normalizeExternals } from './googleEvents.js';
+import { MAX_DESCRIPTION, normalizeExternals, normalizeLabelId } from './googleEvents.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Lists, as a colour
@@ -449,6 +449,16 @@ export function normalizeEvent(raw) {
     // Trimmed to the end of the day, which is 4am: a commitment at midnight has
     // four hours in front of it, not none.
     minutes: Math.min(minutes, DAY_WINDOW_END - dayMinutes(raw.start)),
+    // The tag it is drawn in: a Google event label id, exactly as a task's
+    // `google_label_id` is (see lib/googleEvents). A commitment is never
+    // written to Google — it is furniture, not work — so this only ever colours
+    // the block here, which is the whole of what it is for.
+    labelId: normalizeLabelId(raw?.labelId),
+    // And whatever you wanted to remember about it: the room the class is in,
+    // the number to dial. Called `notes` rather than `description` because that
+    // is what the same field is called on a task, and this side of the wire is
+    // this app's vocabulary; only Google's own events use Google's word.
+    notes: String(raw?.notes || '').slice(0, MAX_DESCRIPTION),
   };
 }
 
@@ -528,6 +538,9 @@ export function dayTimeline(tasks, events = [], today = todayISO(), external = [
       id: task.id,
       title: task.title,
       task,
+      // The tag, in the same place on all three kinds of block, so the grid can
+      // colour one without first asking what it is.
+      labelId: task.google_label_id || null,
       start,
       minutes,
       end: Math.min(start + minutes, DAY_WINDOW_END),
@@ -542,6 +555,7 @@ export function dayTimeline(tasks, events = [], today = todayISO(), external = [
       id: event.id,
       title: event.title,
       event,
+      labelId: event.labelId || null,
       start,
       minutes: event.minutes,
       end: Math.min(start + event.minutes, DAY_WINDOW_END),
@@ -569,6 +583,7 @@ export function dayTimeline(tasks, events = [], today = todayISO(), external = [
       id: event.id,
       title: event.title,
       external: event,
+      labelId: event.labelId || null,
       start,
       minutes: event.minutes,
       end: Math.min(start + event.minutes, DAY_WINDOW_END),

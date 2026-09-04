@@ -105,7 +105,9 @@ function DayTaskRow({ task, list, onPatch, onOpen }) {
 export default function DayView({
   day, dateLine, summary, timeline, events, nowMinutes, listFor, canvasRef, refreshing,
   dragPreview, onRefresh, onReplan, onPatch, onOpen, onUnschedule, onPlaceTask, onPlaceEvent,
-  onAddEvent, onEditEvent, googleControl = null, googleSync = null,
+  onPlaceExternal, onAddEvent, onEditEvent, onTagBlock, onRenameBlock, onDescribeBlock,
+  onDeleteBlock, tags,
+  googleControl = null, googleSync = null,
 }) {
   // Priority order, not plan order: `compareTasks` is priority then due date,
   // which is the same ranking the rest of the app uses.
@@ -194,8 +196,14 @@ export default function DayView({
           onUnschedule={onUnschedule}
           onPlaceTask={onPlaceTask}
           onPlaceEvent={onPlaceEvent}
+          onPlaceExternal={onPlaceExternal}
           onAddEvent={onAddEvent}
           onEditEvent={onEditEvent}
+          onTagBlock={onTagBlock}
+          onRenameBlock={onRenameBlock}
+          onDescribeBlock={onDescribeBlock}
+          onDeleteBlock={onDeleteBlock}
+          tags={tags}
           dragPreview={dragPreview}
           googleControl={googleControl}
           sticky={false}

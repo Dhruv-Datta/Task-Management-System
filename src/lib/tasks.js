@@ -385,6 +385,9 @@ export function normalizeTask(row) {
       ? null
       : minutesToClock(clockToMinutes(row.scheduled_start)),
     scheduled_minutes: normalizeEstimate(row.scheduled_minutes),
+    // The tag its block is drawn in: a Google event label id, or null for the
+    // ordinary "no tag" (see lib/googleEvents). Empty string is not a tag.
+    google_label_id: row.google_label_id || null,
     subtasks: Array.isArray(row.subtasks) ? row.subtasks : [],
     position: row.position ?? 0,
   };

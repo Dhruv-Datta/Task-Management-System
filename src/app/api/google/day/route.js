@@ -58,6 +58,11 @@ function disconnected(date, reason) {
     events: [],
     calendars: 0,
     failed: [],
+    // The tag vocabulary, empty: it is Google's, so with no connection there is
+    // none of it, and the menu on a block says so rather than offering nothing
+    // and looking broken.
+    labels: {},
+    writeCalendar: null,
     pushed: { at: null, count: 0, signature: '' },
     reason,
   });
@@ -93,6 +98,11 @@ export async function GET(request) {
         // Which calendars could not be read, so the page can say "3 of 4"
         // rather than draw a thinner day and let you plan into a meeting.
         failed: day.failed,
+        // The TAGS the day can be drawn in: per calendar, for its own events,
+        // and the ones on the calendar the day is pushed to, which are the ones
+        // a task block or a commitment of yours may take.
+        labels: day.labels,
+        writeCalendar: day.writeCalendar,
         pushed,
         reason: null,
       });
@@ -150,6 +160,8 @@ export async function POST(request) {
       events: day.events,
       calendars: day.calendars,
       failed: day.failed,
+      labels: day.labels,
+      writeCalendar: day.writeCalendar,
     });
   });
 }

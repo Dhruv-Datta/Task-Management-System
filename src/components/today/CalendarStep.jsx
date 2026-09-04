@@ -32,7 +32,8 @@ import TodayRow from './TodayRow';
 export default function CalendarStep({
   day, timeline, events, nowMinutes, listFor, canvasRef, dragPreview,
   onPatch, onOpen, onSchedule, onRemoveFromToday, onSetHalf,
-  onUnschedule, onPlaceTask, onPlaceEvent, onAddEvent, onEditEvent,
+  onUnschedule, onPlaceTask, onPlaceEvent, onPlaceExternal, onAddEvent, onEditEvent,
+  onTagBlock, onRenameBlock, onDescribeBlock, onDeleteBlock, tags,
   googleControl = null,
 }) {
   const unplaced = day.open.filter(task => !task.scheduled_start);
@@ -54,8 +55,14 @@ export default function CalendarStep({
         onUnschedule={onUnschedule}
         onPlaceTask={onPlaceTask}
         onPlaceEvent={onPlaceEvent}
+        onPlaceExternal={onPlaceExternal}
         onAddEvent={onAddEvent}
         onEditEvent={onEditEvent}
+        onTagBlock={onTagBlock}
+        onRenameBlock={onRenameBlock}
+        onDescribeBlock={onDescribeBlock}
+        onDeleteBlock={onDeleteBlock}
+        tags={tags}
         dragPreview={dragPreview}
         googleControl={googleControl}
         maxHeight="calc(100vh - 300px)"

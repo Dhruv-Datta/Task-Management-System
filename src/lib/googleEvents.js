@@ -7,16 +7,38 @@
 
     an EXTERNAL EVENT   something already on your real Google calendar. It is
                         not a task and not one of your commitments; it is the
-                        shape of the day you are planning INTO. You cannot move
-                        it, resize it, complete it or delete it from here — the
-                        only honest thing a planner can do with a lecture at
-                        nine is draw it and plan around it.
+                        shape of the day you are planning INTO. It cannot be
+                        completed and it has no due date, but it IS yours to
+                        rearrange — see below.
 
   and one thing goes the other way:
 
     a PUSHED BLOCK      a task you scheduled, written into Google Calendar when
                         you finish planning, so the day you decided on is the
                         day your phone shows you at eleven o'clock.
+
+  THE EXTERNAL EVENT USED TO BE FROZEN, and is no longer. Drawing somebody
+  else's ten o'clock and refusing to touch it is the honest thing to do only
+  while there is nowhere to send the change; with `calendar.events` already
+  granted there is, so a meeting on this timeline moves, resizes, gets renamed,
+  gets retagged and gets deleted exactly as it would in Google's own week view,
+  and the write goes to the event it came from. Three facts decide how
+  far that goes, and they are carried on the event rather than guessed at by the
+  page — three different permissions, because collapsing them into one would
+  take away something Google itself allows:
+
+    writable   we can write to the calendar it lives on at all (`accessRole`).
+               A birthdays calendar, or one shared with you read-only, is still
+               inert — there is nothing to write to. A TAG and a DELETE need
+               this and nothing more: both act on your own copy of the event,
+               which is why Google's own menu offers them on a meeting you were
+               merely invited to.
+    editable   its WORDS are yours: the title and the description. An event with
+               guests that you did not organize belongs to whoever did, and
+               Google refuses a rename from a guest.
+    movable    its TIME is yours as well — editable, and not clipped to this
+               day. What is drawn of an event that crosses a midnight is half of
+               it, and a drag could only say where that half goes.
 
   THE ONE RULE THAT MAKES THE ROUND TRIP SAFE. Every event this app writes
   carries the task's id in `extendedProperties.private` (TASK_ID_PROPERTY).
@@ -42,7 +64,7 @@
 import {
   DAY_WINDOW_END, MINUTES_PER_DAY, addDaysISO, clockToMinutes, dayClock, dayMinutes,
 } from './dates.js';
-import { DEFAULT_BLOCK_MINUTES, normalizeEstimate } from './tasks.js';
+import { DEFAULT_BLOCK_MINUTES, normalizeDailyPriority, normalizeEstimate } from './tasks.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // The mark we leave on our own events
@@ -66,6 +88,65 @@ export const MIN_EXTERNAL_MINUTES = 15;
 
 /** How many external events one day is allowed to draw before we stop reading. */
 export const MAX_EXTERNAL_EVENTS = 200;
+
+/*
+  How much of a description travels with the day.
+
+  Almost every event has none, and the ones that do have a sentence. The
+  exception is a meeting invitation, which arrives carrying a kilobyte of
+  generated HTML — join links, dial-in numbers, a footer — and two hundred of
+  those is a megabyte on every page load, for text nobody reads off a timeline.
+
+  So it is capped, and an event over the cap says so (`descriptionClipped`). That
+  flag is not cosmetic: the menu makes the field READ-ONLY when it is set,
+  because the one thing worse than not showing you a description is letting you
+  save an edit to a truncated copy of one and dropping the rest.
+*/
+export const MAX_DESCRIPTION = 4000;
+
+const clipDescription = text => (text.length > MAX_DESCRIPTION ? text.slice(0, MAX_DESCRIPTION) : text);
+
+/*
+  A DESCRIPTION, AS A BLOCK CAN DRAW IT.
+
+  Two things stand between what is stored and what a box on the timeline can
+  show, and neither of them is a change to what is stored:
+
+    it is HTML       not because anybody typed HTML, but because Google Meet,
+                     Zoom and every invitation generator writes it that way.
+                     Drawn literally, a block would read `<b>Join</b><br>…`,
+                     which is worse than showing nothing. The tags come out.
+    it has SHAPE     paragraphs, list items, blank lines. A block is a few lines
+                     tall, so the shape cannot survive and should not try: it is
+                     collapsed to one run of text and the box clamps it.
+
+  Display only, and deliberately one-way — the menu edits the stored text, not
+  this. A preview that could be saved back would quietly strip the formatting
+  off somebody's meeting invitation the first time they fixed a typo.
+
+  The cap is not the truncation you SEE (the box does that, with its own
+  ellipsis, at whatever height it happens to be). It is a bound on how much text
+  goes into the DOM for each of up to two hundred blocks.
+*/
+export function descriptionPreview(text, limit = 400) {
+  const plain = String(text || '')
+    // The tags that mean "a break here" become a space before they are removed,
+    // or two paragraphs are run together into one word.
+    .replace(/<br\s*\/?>/gi, ' ')
+    .replace(/<\/(p|div|li|tr|h[1-6]|blockquote)>/gi, ' ')
+    .replace(/<[^>]*>/g, '')
+    // Entities last: an escaped `&lt;b&gt;` was TEXT, and decoding it after the
+    // tags are gone is what keeps it text rather than resurrecting it as markup.
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#0*39;/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+  return plain.length > limit ? `${plain.slice(0, limit).trimEnd()}…` : plain;
+}
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -245,6 +326,81 @@ export function eventLabel(raw, calendar = {}) {
   return (id && calendar.labels?.[id]) || null;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// TAGS: the named colours you keep your calendar in
+// ─────────────────────────────────────────────────────────────────────────────
+
+/*
+  A LABEL IS THE ONLY WORD GOOGLE HAS for what KIND of thing an hour is.
+
+  "Work", "Classes", "Chill Vibes" — you defined them on a calendar, Google
+  draws every event carrying one in that colour, and its own right-click menu is
+  a row of them. That is the whole vocabulary, and this app borrows it rather
+  than inventing a parallel one: a tag here IS a Google event label, so a block
+  you retag on this timeline is the same colour on your phone thirty seconds
+  later and means the same thing.
+
+  They belong to ONE CALENDAR each — the id is a UUID that is unique within it —
+  so the tags offered for a block are always the tags of the calendar that block
+  will be written to: its own, for a Google event; the one the day is pushed to
+  (GOOGLE_CALENDAR_NAME), for a task or a commitment of your own. Offering a
+  label from somewhere else would be offering an id the write is about to
+  reject.
+
+  A LABEL WITH NO NAME IS NOT A TAG, and this is not a defensive nicety — it is
+  most of what a calendar returns. Google keeps an unnamed label for each of the
+  colours in its own palette, so `labelProperties.eventLabels` comes back as your
+  six real tags followed by a dozen anonymous swatches. Drawn, they are a menu
+  of identical "Untitled" pills you would never pick, burying the six words you
+  actually named; and a tag is a WORD before it is a colour — "Chill Vibes" is
+  the thing being said, and the colour is only how you recognise it at a
+  distance. So a nameless one is dropped, and the menu is the list you wrote.
+
+  Dropping it here costs an event that carries one NOTHING, because this is the
+  menu's list and not the colour table: `eventColor` resolves a block's colour
+  from the calendar's raw labels (see `eventLabel`), so an event coloured by an
+  unnamed swatch is still drawn in that swatch's colour. It simply is not one of
+  the things you can choose.
+
+  Read defensively for the same reason as everything else here: this crosses the
+  wire, so a label with no colour is not a label either, and is dropped rather
+  than drawn as a transparent pill.
+*/
+export function normalizeLabel(raw) {
+  const id = String(raw?.id || '').trim();
+  const name = String(raw?.name || '').trim();
+  const backgroundColor = String(raw?.backgroundColor || '').trim();
+  if (!id || !name || !HEX.test(backgroundColor)) return null;
+  return { id, name, backgroundColor };
+}
+
+export function normalizeLabels(list) {
+  const seen = new Set();
+  const out = [];
+  for (const raw of Array.isArray(list) ? list : []) {
+    const label = normalizeLabel(raw);
+    if (!label || seen.has(label.id)) continue;
+    seen.add(label.id);
+    out.push(label);
+  }
+  return out;
+}
+
+/** One tag out of a list, by id. `null` is "no tag", and so is one since deleted. */
+export function findLabel(labels, id) {
+  if (!id) return null;
+  return (Array.isArray(labels) ? labels : []).find(label => label.id === id) || null;
+}
+
+/**
+ * The colour a tag paints a block, or `null` when there is no tag on it — in
+ * which case the caller's own default stands (Tomato for a task, slate for a
+ * commitment, whatever Google says for one of its own events).
+ */
+export function labelColor(labels, id) {
+  return findLabel(labels, id)?.backgroundColor || null;
+}
+
 /**
  * A raw Google event, as the day sees it — or `null` when the day does not see
  * it at all.
@@ -270,15 +426,57 @@ export function externalFromGoogle(raw, { date, timeZone, calendar = {}, palette
     return null;
   }
 
+  /*
+    WHAT MAY BE DONE TO IT, decided here and carried on the event, so the page
+    never has to guess and the two flags cannot drift apart from the reasons
+    behind them:
+
+      writable  the calendar accepts writes from us. A holiday feed or a
+                calendar shared read-only does not, and a block you can drag but
+                that snaps back is worse than one that never moved. Tagging and
+                deleting need only this, because both act on your own copy.
+      editable  its words are yours too. An invitation you ACCEPTED belongs to
+                whoever sent it: Google refuses a rename from a guest, and its
+                own UI does not offer one either.
+      movable   and so is its time. Finished on the timed branch below, where it
+                also has to survive the clipping test.
+  */
+  const writable = calendar.accessRole === 'owner' || calendar.accessRole === 'writer';
+  const guests = Array.isArray(raw.attendees) && raw.attendees.length > 0;
+  // `self: true` and nothing else. Google omits the flag rather than sending
+  // false, so "not mentioned" has to read as "not yours" — which only ever
+  // matters for an event that HAS guests, since one with none is yours by
+  // definition however sparsely Google described its organizer.
+  const organizer = raw.organizer?.self === true;
+
   const base = {
     id: `${calendar.id || 'primary'}::${raw.id}`,
+    // The two halves of that id, kept as well as joined: the id is what React
+    // draws a list by, and these are what a write is addressed to. Splitting
+    // the string again on the way back would be a parser nobody needs, and one
+    // that a calendar id containing '::' would quietly get wrong.
+    calendarId: String(calendar.id || 'primary'),
+    eventId: String(raw.id),
     title: String(raw.summary || '').trim() || 'Busy',
     color: eventColor(raw, calendar, palette),
     // What you called that colour. "Chill Vibes" says more about an hour than
     // the fact that it is blue does, and it is the only word Google gives us
     // for what KIND of thing an event is.
     label: String(eventLabel(raw, calendar)?.name || '').trim(),
+    // The tag itself, as an id the tag menu can compare against and write back.
+    labelId: String(eventLabel(raw, calendar) ? raw.eventLabelId : '').trim(),
     calendar: String(calendar.summary || '').trim(),
+    // What Google calls the description, kept as Google keeps it — which for a
+    // meeting invitation genuinely is HTML. Capped rather than dropped: see
+    // MAX_DESCRIPTION.
+    description: clipDescription(String(raw.description || '')),
+    descriptionClipped: String(raw.description || '').length > MAX_DESCRIPTION,
+    writable,
+    editable: writable && (!guests || organizer),
+    movable: writable && (!guests || organizer),
+    // One occurrence of a repeating event. Changing it changes THIS Tuesday,
+    // not every Tuesday, and that is worth saying before you drag it.
+    recurring: !!raw.recurringEventId,
     location: String(raw.location || '').trim(),
   };
 
@@ -333,6 +531,18 @@ export function externalFromGoogle(raw, { date, timeZone, calendar = {}, palette
     startMinutes: start,
     minutes: Math.min(Math.max(MIN_EXTERNAL_MINUTES, end - start), DAY_WINDOW_END - start),
     clipped: clippedStart && clippedEnd ? 'both' : clippedStart ? 'start' : clippedEnd ? 'end' : null,
+    /*
+      AN EVENT THAT CROSSES A MIDNIGHT IS NOT DRAGGED FROM HERE, however much of
+      it you can see. What is drawn is the slice that falls on this day, and a
+      drag can only say where that slice goes — so committing it would rewrite a
+      conference that runs Thursday to Sunday as a two-hour block on Friday.
+      That is not a move, it is a deletion with a plausible shape, and the one
+      place to make it is the one that can see both ends: Google.
+
+      The tag is untouched by any of this and stays offered, because a colour
+      says nothing about when a thing is.
+    */
+    movable: base.editable && !clippedStart && !clippedEnd,
   };
 }
 
@@ -351,10 +561,22 @@ export function normalizeExternal(raw) {
 
   const shared = {
     id: String(raw.id),
+    calendarId: String(raw.calendarId || '').trim(),
+    eventId: String(raw.eventId || '').trim(),
     title: String(raw.title || '').trim() || 'Busy',
     color: HEX.test(String(raw.color || '')) ? raw.color : EXTERNAL_FALLBACK_COLOR,
     label: String(raw.label || '').trim(),
+    labelId: String(raw.labelId || '').trim(),
     calendar: String(raw.calendar || '').trim(),
+    description: clipDescription(String(raw.description || '')),
+    descriptionClipped: !!raw.descriptionClipped,
+    // A gesture is only offered where the write behind it can land, and an
+    // event with no address to write to is not one of them however it was
+    // flagged: both halves of the id have to be there.
+    writable: !!raw.writable && !!raw.calendarId && !!raw.eventId,
+    editable: !!raw.editable && !!raw.calendarId && !!raw.eventId,
+    movable: !!raw.movable && !!raw.calendarId && !!raw.eventId,
+    recurring: !!raw.recurring,
     location: String(raw.location || '').trim(),
   };
 
@@ -390,6 +612,38 @@ export function normalizeExternals(list) {
 // The other direction: the day, as Google should hold it
 // ─────────────────────────────────────────────────────────────────────────────
 
+/*
+  THE STAR: today's must-do, said in the one alphabet a calendar has.
+
+  A task on the day is either something you are COMMITTING to finish
+  (`daily_priority: 'must_do'`, the filled star on every row of this app) or
+  something you will get to if the day allows. On this side of the wire that
+  distinction is a column and a control; on your phone at eleven o'clock it is
+  nothing at all — six identical red boxes, and no way to tell the two you
+  promised yourself from the four you did not.
+
+  Google gives an event a title and a colour and nothing else to say this with.
+  The colour is already spoken for (it is the tag, see `labelColor`), so the
+  title carries it: one star, appended, and only on the copy that goes to
+  Google. The task keeps its own title exactly as you typed it — a mark that
+  leaked back into the task list would be a second, worse copy of the star that
+  is already on the row.
+
+  Appended rather than prefixed, because a calendar draws a block narrow and
+  truncates from the RIGHT: a leading star would survive and eat the first
+  character of every name, where a trailing one is simply the first thing to go
+  when there is no room for it, which is the right thing to lose.
+*/
+export const MUST_DO_STAR = '⭐';
+
+/** A block's title as Google should hold it: yours, plus the star if you owe it today. */
+export function pushTitle(title, mustDo) {
+  const name = String(title || '').trim() || 'Untitled task';
+  // Idempotent: a title that already ends in one is not given a second.
+  if (!mustDo || name.endsWith(MUST_DO_STAR)) return name;
+  return `${name} ${MUST_DO_STAR}`;
+}
+
 /**
  * What finishing the day sends to Google: every task planned for `date` that
  * you actually gave an hour to.
@@ -418,11 +672,15 @@ export function dayPushItems(tasks, date) {
         || DEFAULT_BLOCK_MINUTES;
       return {
         taskId: String(task.id),
-        title: String(task.title || '').trim() || 'Untitled task',
+        title: pushTitle(task.title, normalizeDailyPriority(task.daily_priority) === 'must_do'),
         start: dayClock(start),
         // `start` here is a position on the 4am day, so a 1am block has until
         // four rather than until midnight.
         minutes: Math.min(length, DAY_WINDOW_END - start),
+        // The tag, as an id on the calendar the day is written to. Null is not
+        // "no opinion" but "no tag": it is what puts a retagged block back to
+        // Tomato, so it travels rather than being omitted.
+        labelId: String(task.google_label_id || '').trim() || null,
       };
     })
     // Sorted by where they sit on the DAY, so the 1am block is last rather than
@@ -446,7 +704,7 @@ export function dayPushItems(tasks, date) {
   since you sent it", and it has to be an identity, not a heuristic.
 */
 export function itemSignature(item) {
-  return `${item.start}+${item.minutes}|${item.title}`;
+  return `${item.start}+${item.minutes}|${item.labelId || ''}|${item.title}`;
 }
 
 export function daySignature(entries) {
@@ -458,6 +716,15 @@ export function daySignature(entries) {
 
 export function pushSignature(items) {
   return daySignature((items || []).map(item => [item.taskId, itemSignature(item)]));
+}
+
+/**
+ * A tag id off the wire. Google's are UUIDs; anything that is not shaped like
+ * one is not a tag, and `null` is the perfectly ordinary answer "no tag".
+ */
+export function normalizeLabelId(raw) {
+  const id = String(raw || '').trim();
+  return /^[0-9a-fA-F-]{8,64}$/.test(id) ? id : null;
 }
 
 /**
@@ -477,6 +744,7 @@ export function normalizePushItem(raw) {
     title,
     start: dayClock(start),
     minutes: Math.min(minutes, DAY_WINDOW_END - start),
+    labelId: normalizeLabelId(raw.labelId),
   };
 }
 

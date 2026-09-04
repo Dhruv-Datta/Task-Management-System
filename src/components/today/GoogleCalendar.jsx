@@ -296,6 +296,18 @@ const NOTICES = {
     title: 'The day did not reach Google Calendar',
     body: 'The send failed. Nothing on today has changed; press Send changes to try again.',
   },
+  /*
+    A single event of yours, refused. Its body comes through verbatim too, and
+    for the same reason: the commonest refusal is not a fault but a fact — a
+    calendar shared with you read-only, or a meeting somebody else organized —
+    and the block on the grid has already sprung back to where it was, which on
+    its own looks exactly like a gesture that does not work.
+  */
+  event_failed: {
+    tone: 'amber',
+    title: 'That event was not changed',
+    body: 'Google would not take the change, so the event is as it was.',
+  },
 };
 
 const NOTICE_TONES = {

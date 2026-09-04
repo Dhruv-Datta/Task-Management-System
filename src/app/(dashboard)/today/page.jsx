@@ -77,8 +77,8 @@ import {
   EMPTY_DAY_PLAN, FIRST_STEP, nextStepKey, owedTodaySeed, prevStepKey,
 } from '@/lib/dayPlan';
 import {
-  createTask, disconnectGoogle, fetchDayEvents, fetchDayPlan, fetchGoogleDay, fetchLists,
-  fetchTasks, pushGoogleDay, saveDayEvents, saveDayPlan,
+  createTask, deleteGoogleEvent, disconnectGoogle, fetchDayEvents, fetchDayPlan, fetchGoogleDay,
+  fetchLists, fetchTasks, patchGoogleEvent, pushGoogleDay, saveDayEvents, saveDayPlan,
 } from '@/lib/tasksApi';
 import { dayPushItems, pushSignature } from '@/lib/googleEvents';
 import { useTaskStore } from '@/lib/taskStore';
@@ -164,6 +164,23 @@ export default function TodayPage() {
   const [google, setGoogle] = useState(null);
   const [external, setExternal] = useState([]);
   const [googleNotice, setGoogleNotice] = useState(null);
+  /*
+    THE TAGS, which come down with the day for the same reason the events do:
+    they are Google's, they are read in the same request, and they are useless
+    apart. `byCalendar` is the labels defined on each calendar you read — the
+    ones a Google event may take — and `write` is the calendar the day is pushed
+    to plus its own labels, which are the only ones a TASK's block can be given,
+    because that is where a task's block ends up.
+  */
+  const [labels, setLabels] = useState({ byCalendar: {}, write: null });
+  /*
+    Today's real events, readable from a callback without every callback
+    depending on the array — the same trick and the same reason as `tasksRef`.
+    An optimistic edit to one of them needs the list as it was, so a write that
+    Google refuses can put it back.
+  */
+  const externalRef = useRef(external);
+  useEffect(() => { externalRef.current = external; }, [external]);
   const [sync, setSync] = useState({
     status: 'idle', signature: '', at: null, count: 0, stale: false, calendar: null, error: null,
   });
@@ -309,6 +326,9 @@ export default function TodayPage() {
       // Only a CONNECTED answer is allowed to replace the events. A
       // disconnected one clears them, because they are no longer ours to draw.
       setExternal(day.connected ? (day.events || []) : []);
+      setLabels(day.connected
+        ? { byCalendar: day.labels || {}, write: day.writeCalendar || null }
+        : { byCalendar: {}, write: null });
       setSync(prev => ({
         ...prev,
         signature: day.pushed?.signature || '',
@@ -684,6 +704,7 @@ export default function TodayPage() {
       });
       setGoogleNotice(null);
       setExternal(res.events || []);
+      setLabels({ byCalendar: res.labels || {}, write: res.writeCalendar || null });
       setGoogle(prev => (prev ? { ...prev, failed: res.failed || [] } : prev));
     } catch (err) {
       console.error('Failed to send the day to Google Calendar', err);
@@ -716,9 +737,99 @@ export default function TodayPage() {
       console.error('Failed to disconnect Google Calendar', err);
     }
     setExternal([]);
+    setLabels({ byCalendar: {}, write: null });
     setSync({ status: 'idle', signature: '', at: null, count: 0, error: null });
     setGoogle(prev => ({ ...(prev || { configured: true }), connected: false, email: null, reason: null, failed: [], loading: false, error: null }));
   }, []);
+
+  // ─── Changing one of your real Google events ───────────────────────────────
+
+  /*
+    THE SECOND WRITE PATH TO GOOGLE, and it is nothing like the first.
+
+    Finishing the day SENDS A DAY: a whole reconciliation, worked out server-side
+    against what we last wrote, touching only events this app made. This is one
+    event, changed one field at a time, and the event belongs to your calendar
+    rather than to us — you dragged your ten o'clock, or you retagged it.
+
+    Optimistic, like every other write on this page, and rolled back on refusal.
+    The commonest refusal is not a fault at all — a calendar you may read and not
+    write, an invitation somebody else organized — and a block that silently
+    springs back to where it was is the single most confusing thing this app can
+    do, so the reason is said out loud in the banner.
+
+    The reply is the WHOLE DAY, not a receipt, and that is the point of doing it
+    this way round: moving an event changes what overlaps what and which column
+    every block near it is drawn in, and none of that is derivable from "ok".
+  */
+  const changeExternal = useCallback(async (event, changes, optimistic) => {
+    if (!event?.calendarId || !event?.eventId) return;
+    const before = externalRef.current;
+
+    setExternal(prev => prev.map(e => (e.id === event.id ? { ...e, ...optimistic } : e)));
+
+    try {
+      const res = await patchGoogleEvent({
+        calendarId: event.calendarId,
+        eventId: event.eventId,
+        date: today,
+        tz: timeZone,
+        ...changes,
+      });
+      if (!res.ok) {
+        setExternal(before);
+        setGoogleNotice({ status: 'event_failed', message: res.error });
+        return;
+      }
+      setExternal(res.events || []);
+      setLabels({ byCalendar: res.labels || {}, write: res.writeCalendar || null });
+      setGoogle(prev => (prev ? { ...prev, failed: res.failed || [] } : prev));
+    } catch (err) {
+      console.error('Failed to change a Google Calendar event', err);
+      setExternal(before);
+      setGoogleNotice({ status: 'event_failed', message: err?.message || null });
+    }
+  }, [timeZone, today]);
+
+  /*
+    Dragged or resized on the grid. `start` is a position on the 4am day, which
+    is what the timeline works in and what the small hours need: an event moved
+    to half past midnight is minute 1470 here and one in the morning of tomorrow
+    in Google, and the route is what turns one into the other.
+  */
+  const placeExternal = useCallback((event, startMinutes, minutes) => {
+    changeExternal(
+      event,
+      { start: startMinutes, minutes },
+      { startMinutes, minutes, clipped: null },
+    );
+  }, [changeExternal]);
+
+  const removeExternal = useCallback(async (event) => {
+    if (!event?.calendarId || !event?.eventId) return;
+    const before = externalRef.current;
+    setExternal(prev => prev.filter(e => e.id !== event.id));
+
+    try {
+      const res = await deleteGoogleEvent({
+        calendarId: event.calendarId,
+        eventId: event.eventId,
+        date: today,
+        tz: timeZone,
+      });
+      if (!res.ok) {
+        setExternal(before);
+        setGoogleNotice({ status: 'event_failed', message: res.error });
+        return;
+      }
+      setExternal(res.events || []);
+      setLabels({ byCalendar: res.labels || {}, write: res.writeCalendar || null });
+    } catch (err) {
+      console.error('Failed to delete a Google Calendar event', err);
+      setExternal(before);
+      setGoogleNotice({ status: 'event_failed', message: err?.message || null });
+    }
+  }, [timeZone, today]);
 
   // ─── The day's fixed commitments ───────────────────────────────────────────
 
@@ -753,6 +864,81 @@ export default function TodayPage() {
       e.id === event.id ? { ...e, start: dayClock(startMinutes), minutes } : e
     )));
   }, [events, writeEvents]);
+
+  // ─── The tag menu, over whichever kind of block you right-clicked ───────────
+
+  /*
+    ONE GESTURE, THREE PLACES IT LANDS — because a tag means the same thing on
+    all three and is stored by whoever owns the block:
+
+      a task        `google_label_id` on the row. It colours the block here at
+                    once, and goes to Google with the next send, which is what
+                    the "Send changes" button starts offering the moment you
+                    pick one (the tag is in the push signature).
+      a commitment  `labelId` in the day's own events blob. It never goes to
+                    Google — a commitment is furniture, not work — so this is
+                    the whole of it.
+      a Google      straight to Google, on the event itself. Its colour here is
+      event         its colour there, because they are the same fact.
+
+    The dispatch is here rather than in the timeline for the reason everything
+    else on this page is: the grid draws blocks and knows nothing about which
+    table each one came from.
+  */
+  const tagBlock = useCallback((block, labelId) => {
+    if (block.kind === 'task') {
+      patchTask(block.task.id, { google_label_id: labelId });
+    } else if (block.kind === 'event') {
+      writeEvents(events.map(e => (e.id === block.event.id ? { ...e, labelId } : e)));
+    } else if (block.external) {
+      // `labelId: null` is a value and not an omission: it is what takes the
+      // tag off, and the route reads the field's presence to tell the two apart.
+      changeExternal(block.external, { labelId }, { labelId });
+    }
+  }, [changeExternal, events, patchTask, writeEvents]);
+
+  const renameBlock = useCallback((block, title) => {
+    if (block.kind === 'task') patchTask(block.task.id, { title });
+    else if (block.kind === 'event') {
+      writeEvents(events.map(e => (e.id === block.event.id ? { ...e, title } : e)));
+    } else if (block.external) {
+      changeExternal(block.external, { title }, { title });
+    }
+  }, [changeExternal, events, patchTask, writeEvents]);
+
+  /*
+    The description under the name, and it lands in whichever field that kind of
+    thing already has for it: a task's `notes` (the same text the detail panel
+    shows), a commitment's note in the day's own blob, and a Google event's
+    `description`. Three names for one idea, and the menu only knows the idea.
+  */
+  const describeBlock = useCallback((block, text) => {
+    if (block.kind === 'task') patchTask(block.task.id, { notes: text });
+    else if (block.kind === 'event') {
+      writeEvents(events.map(e => (e.id === block.event.id ? { ...e, notes: text } : e)));
+    } else if (block.external) {
+      changeExternal(block.external, { description: text }, { description: text });
+    }
+  }, [changeExternal, events, patchTask, writeEvents]);
+
+  const deleteBlock = useCallback((block) => {
+    if (block.kind === 'event') removeEvent(block.event);
+    else if (block.external) removeExternal(block.external);
+  }, [removeEvent, removeExternal]);
+
+  /*
+    The tags as the timeline wants them: the labels of each calendar you read,
+    for its own events, and the ones on the calendar the day is pushed to, which
+    are the only ones a task's block or a commitment may take. `connected`
+    separates "you have no tags" from "there is no Google here", which are two
+    different sentences under an empty menu.
+  */
+  const tags = useMemo(() => ({
+    own: labels.write?.labels || [],
+    byCalendar: labels.byCalendar || {},
+    calendar: labels.write?.name || null,
+    connected: !!google?.connected,
+  }), [google, labels]);
 
   // ─── Dragging onto the day ─────────────────────────────────────────────────
 
@@ -1017,6 +1203,12 @@ export default function TodayPage() {
           onUnschedule={unschedule}
           onPlaceTask={placeTask}
           onPlaceEvent={placeEvent}
+          onPlaceExternal={placeExternal}
+          onTagBlock={tagBlock}
+          onRenameBlock={renameBlock}
+          onDescribeBlock={describeBlock}
+          onDeleteBlock={deleteBlock}
+          tags={tags}
           onAddEvent={range => setEventDraft({ event: null, range })}
           onEditEvent={event => setEventDraft({ event })}
           dragPreview={dragPreview}
@@ -1125,6 +1317,12 @@ export default function TodayPage() {
               onUnschedule={unschedule}
               onPlaceTask={placeTask}
               onPlaceEvent={placeEvent}
+              onPlaceExternal={placeExternal}
+              onTagBlock={tagBlock}
+              onRenameBlock={renameBlock}
+              onDescribeBlock={describeBlock}
+              onDeleteBlock={deleteBlock}
+              tags={tags}
               onAddEvent={range => setEventDraft({ event: null, range })}
               onEditEvent={event => setEventDraft({ event })}
               dragPreview={dragPreview}

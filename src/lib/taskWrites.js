@@ -15,6 +15,7 @@
   testable functions.
 */
 
+import { normalizeLabelId } from './googleEvents.js';
 import {
   normalizeDailyPriority, normalizeEstimate, normalizePriority, normalizeStatus,
   plannedPatch, schedulePatch, statusPatch,
@@ -33,6 +34,15 @@ export function sanitizeWritableFields(body = {}) {
   // "This one is going to be a fight." A boolean and nothing cleverer: it is
   // what Attention reads a week out (see lib/agenda's `attention`).
   if (body.is_hard !== undefined) row.is_hard = !!body.is_hard;
+  /*
+    The tag on its timeline block, as a Google event label id — set from the
+    calendar's own right-click menu (see lib/googleEvents). Null is a real
+    value here and means "no tag", which is what takes a block back to Tomato,
+    so it is stored rather than skipped.
+  */
+  if (body.google_label_id !== undefined) {
+    row.google_label_id = normalizeLabelId(body.google_label_id);
+  }
   if (body.status !== undefined || body.done !== undefined) {
     const status = body.status !== undefined
       ? normalizeStatus(body.status)

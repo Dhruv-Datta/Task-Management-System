@@ -108,6 +108,22 @@ report(
     : 'tasks has the /today planning columns'
 );
 
+/*
+  The tag column, asked for separately from the planning ones, because it is
+  what an otherwise perfectly healthy database is most likely to be missing
+  right now — and because the failure it causes is a quiet one: everything reads
+  fine, and only tagging a block on the timeline is refused.
+*/
+const { error: tagError } = await supabase.from('tasks').select('google_label_id').limit(1);
+report(
+  !tagError,
+  tagError
+    ? `tasks is missing google_label_id (${tagError.message}).`
+      + '\n  Tagging a block on the timeline will fail until it is there. Re-run supabase/schema.sql,'
+      + '\n  or just: ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS google_label_id text;'
+    : 'tasks has the timeline tag column'
+);
+
 if (failed) {
   console.log('\nIf a table or a column is missing, run supabase/schema.sql against this project.');
 } else {

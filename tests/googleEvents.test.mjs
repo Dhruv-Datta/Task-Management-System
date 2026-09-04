@@ -17,9 +17,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  EXTERNAL_FALLBACK_COLOR, MIN_EXTERNAL_MINUTES, TASK_ID_PROPERTY, asDrawn, dayPushItems, daySignature,
-  externalFromGoogle, isValidTimeZone, itemSignature, normalizeExternal, normalizeExternals,
-  normalizePushItems, pushSignature, wallClock,
+  EXTERNAL_FALLBACK_COLOR, MAX_DESCRIPTION, MIN_EXTERNAL_MINUTES, MUST_DO_STAR, TASK_ID_PROPERTY, asDrawn,
+  dayPushItems, daySignature, descriptionPreview, externalFromGoogle, findLabel, isValidTimeZone,
+  itemSignature,
+  labelColor, normalizeExternal, normalizeExternals, normalizeLabelId, normalizeLabels,
+  normalizePushItems, pushSignature, pushTitle, wallClock,
 } from '../src/lib/googleEvents.js';
 import { normalizeTask } from '../src/lib/tasks.js';
 
@@ -295,7 +297,258 @@ test('only tasks planned for the day AND given an hour are sent', () => {
     mk({ id: '3', title: 'Old', planned_date: '2026-09-02', scheduled_start: '09:00', scheduled_minutes: 30 }),
   ], DATE);
 
-  assert.deepEqual(items, [{ taskId: '1', title: 'Memo', start: '11:00', minutes: 60 }]);
+  // Starred, because `normalizeTask` puts an unstated task on the day as
+  // must_do — a deadline is a commitment by default (see DEFAULT_DAILY_PRIORITY).
+  assert.deepEqual(items, [{
+    taskId: '1', title: `Memo ${MUST_DO_STAR}`, start: '11:00', minutes: 60, labelId: null,
+  }]);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// What may be done to somebody else's hour
+// ─────────────────────────────────────────────────────────────────────────────
+
+const mine = { ...calendar, accessRole: 'owner' };
+const theirs = { ...calendar, accessRole: 'reader' };
+
+test('an event on a calendar you own is yours to move, and carries its address', () => {
+  const event = externalFromGoogle(timed('2026-09-03T09:00:00', '2026-09-03T10:00:00'), {
+    date: DATE, timeZone: TZ, calendar: mine, palette,
+  });
+  assert.equal(event.writable, true);
+  assert.equal(event.movable, true);
+  assert.equal(event.calendarId, calendar.id);
+  assert.equal(event.eventId, 'evt1');
+});
+
+test('a calendar shared with you read-only is drawn and never written', () => {
+  const event = externalFromGoogle(timed('2026-09-03T09:00:00', '2026-09-03T10:00:00'), {
+    date: DATE, timeZone: TZ, calendar: theirs, palette,
+  });
+  assert.equal(event.writable, false);
+  assert.equal(event.movable, false);
+});
+
+test("a meeting somebody else organized keeps its words, and still takes a tag", () => {
+  const event = externalFromGoogle(
+    timed('2026-09-03T09:00:00', '2026-09-03T10:00:00', {
+      organizer: { email: 'them@example.com' },
+      attendees: [{ email: 'me@example.com', self: true, responseStatus: 'accepted' }],
+    }),
+    { date: DATE, timeZone: TZ, calendar: mine, palette },
+  );
+  // The three flags are the whole point of being three: recolouring your own
+  // copy is yours, its wording and its time are the organizer's.
+  assert.equal(event.writable, true);
+  assert.equal(event.editable, false);
+  assert.equal(event.movable, false);
+});
+
+test('an event that crosses a midnight is not dragged from a day that holds half of it', () => {
+  const event = externalFromGoogle(timed('2026-09-02T22:00:00', '2026-09-03T09:00:00'), {
+    date: DATE, timeZone: TZ, calendar: mine, palette,
+  });
+  assert.equal(event.clipped, 'start');
+  assert.equal(event.movable, false);
+  // But its NAME is still perfectly safe to change: clipping is a fact about
+  // which hours are on this day, and says nothing about whose event it is.
+  assert.equal(event.writable, true);
+  assert.equal(event.editable, true);
+});
+
+test('a description comes back as Google holds it', () => {
+  const event = externalFromGoogle(
+    timed('2026-09-03T09:00:00', '2026-09-03T10:00:00', { description: 'Room 214, bring the draft' }),
+    { date: DATE, timeZone: TZ, calendar: mine, palette },
+  );
+  assert.equal(event.description, 'Room 214, bring the draft');
+  assert.equal(event.descriptionClipped, false);
+
+  // No description is an empty string rather than undefined, so the field it is
+  // drawn in never has to ask which kind of nothing this is.
+  const bare = externalFromGoogle(timed('2026-09-03T09:00:00', '2026-09-03T10:00:00'), {
+    date: DATE, timeZone: TZ, calendar: mine, palette,
+  });
+  assert.equal(bare.description, '');
+});
+
+test('a meeting invitation\u2019s wall of html is carried in part and flagged as partial', () => {
+  const long = 'x'.repeat(MAX_DESCRIPTION + 500);
+  const event = externalFromGoogle(
+    timed('2026-09-03T09:00:00', '2026-09-03T10:00:00', { description: long }),
+    { date: DATE, timeZone: TZ, calendar: mine, palette },
+  );
+  assert.equal(event.description.length, MAX_DESCRIPTION);
+  // The flag is what stops the menu offering to save an edit to two thirds of
+  // somebody's dial-in details.
+  assert.equal(event.descriptionClipped, true);
+
+  // And it survives the wire, because that is the side the menu reads it on.
+  assert.equal(normalizeExternal({
+    id: 'x', calendarId: 'c', eventId: 'e', startMinutes: 540, minutes: 60,
+    description: long, descriptionClipped: true, writable: true, editable: true,
+  }).descriptionClipped, true);
+});
+
+test('the tag an event carries comes back as an id, and a deleted one comes back as none', () => {
+  const label = { id: 'aaaaaaaa-1111-2222-3333-444444444444', name: 'Classes', backgroundColor: '#f4511e' };
+  const withLabel = externalFromGoogle(
+    timed('2026-09-03T09:00:00', '2026-09-03T10:00:00', { eventLabelId: label.id }),
+    { date: DATE, timeZone: TZ, calendar: { ...mine, labels: { [label.id]: label } }, palette },
+  );
+  assert.equal(withLabel.labelId, label.id);
+  assert.equal(withLabel.color, '#f4511e');
+  assert.equal(withLabel.label, 'Classes');
+
+  // The same event on a calendar that no longer defines that label: no tag, and
+  // the colour falls through to the calendar's, exactly as Google draws it.
+  const orphaned = externalFromGoogle(
+    timed('2026-09-03T09:00:00', '2026-09-03T10:00:00', { eventLabelId: label.id }),
+    { date: DATE, timeZone: TZ, calendar: mine, palette },
+  );
+  assert.equal(orphaned.labelId, '');
+});
+
+test('a gesture is never offered where there is no address to send it to', () => {
+  const event = normalizeExternal({
+    id: 'x', startMinutes: 540, minutes: 60, writable: true, editable: true, movable: true,
+  });
+  assert.equal(event.writable, false);
+  assert.equal(event.editable, false);
+  assert.equal(event.movable, false);
+});
+
+test('a description drawn on a block is plain text, whatever Google put in it', () => {
+  // What an invitation generator actually writes.
+  assert.equal(
+    descriptionPreview('<p>Join the <b>weekly</b> sync</p><br>Room&nbsp;214 &amp; bring the draft'),
+    'Join the weekly sync Room 214 & bring the draft',
+  );
+  // A break tag becomes a space rather than nothing, or two lines run together
+  // into one word.
+  assert.equal(descriptionPreview('one<br>two'), 'one two');
+  // Text that was ESCAPED stays text: decoding after the tags are gone is what
+  // stops `&lt;b&gt;` coming back to life as markup.
+  assert.equal(descriptionPreview('&lt;b&gt; is bold'), '<b> is bold');
+  // A note of your own keeps its words and loses its shape, which is all a
+  // three-line box could have kept anyway.
+  assert.equal(descriptionPreview('line one\n\nline two'), 'line one line two');
+  assert.equal(descriptionPreview(''), '');
+  assert.equal(descriptionPreview(null), '');
+});
+
+test('a preview is bounded, and says so when it has been cut', () => {
+  const long = descriptionPreview('word '.repeat(200));
+  assert.ok(long.length <= 401);
+  assert.ok(long.endsWith('…'));
+  // Short enough to fit is left exactly alone — no ellipsis on a complete note.
+  assert.equal(descriptionPreview('Room 214'), 'Room 214');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The star: today's must-do, said in the one alphabet a calendar has
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('a must-do task carries a star into Google, and an optional one does not', () => {
+  const [must] = dayPushItems([
+    mk({ id: '1', title: 'Essay', planned_date: DATE, scheduled_start: '09:00', daily_priority: 'must_do' }),
+  ], DATE);
+  assert.equal(must.title, `Essay ${MUST_DO_STAR}`);
+
+  const [maybe] = dayPushItems([
+    mk({ id: '2', title: 'Reading', planned_date: DATE, scheduled_start: '09:00', daily_priority: 'optional' }),
+  ], DATE);
+  assert.equal(maybe.title, 'Reading');
+});
+
+test('the star is appended once, however many times a day is sent', () => {
+  assert.equal(pushTitle(`Essay ${MUST_DO_STAR}`, true), `Essay ${MUST_DO_STAR}`);
+  // And it is not a permanent mark: unstarring takes it off again, because the
+  // title is rebuilt from the task rather than edited in place.
+  assert.equal(pushTitle('Essay', false), 'Essay');
+});
+
+test('starring a task is a change Google has to be told about', () => {
+  const of = priority => itemSignature(dayPushItems([
+    mk({ id: '1', title: 'Essay', planned_date: DATE, scheduled_start: '09:00', daily_priority: priority }),
+  ], DATE)[0]);
+  assert.notEqual(of('must_do'), of('optional'));
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tags: the named colours you keep your calendar in
+// ─────────────────────────────────────────────────────────────────────────────
+
+const TAGS = [
+  { id: '11111111-1111-1111-1111-111111111111', name: 'Classes', backgroundColor: '#f4511e' },
+  { id: '22222222-2222-2222-2222-222222222222', name: 'Chill Vibes', backgroundColor: '#4285f4' },
+];
+
+test('a tag with no colour is not a tag, and neither is a duplicate of one', () => {
+  const labels = normalizeLabels([
+    ...TAGS,
+    { id: 'no-colour', name: 'Broken' },
+    { name: 'No id at all', backgroundColor: '#000000' },
+    TAGS[0],
+  ]);
+  assert.deepEqual(labels.map(l => l.name), ['Classes', 'Chill Vibes']);
+});
+
+test('the anonymous swatches Google keeps for its own palette are not tags', () => {
+  /*
+    What a real calendar answers with: the handful you named, and one unnamed
+    label per colour in Google's palette. Only the named ones are choices — the
+    rest would be a menu of identical "Untitled" pills burying the words you
+    actually wrote.
+  */
+  const labels = normalizeLabels([
+    TAGS[0],
+    { id: '33333333-3333-3333-3333-333333333333', backgroundColor: '#d50000' },
+    { id: '44444444-4444-4444-4444-444444444444', name: '   ', backgroundColor: '#0b8043' },
+    TAGS[1],
+  ]);
+  assert.deepEqual(labels.map(l => l.name), ['Classes', 'Chill Vibes']);
+});
+
+test('a tag colours the thing it is on, and nothing when it has been deleted', () => {
+  assert.equal(labelColor(TAGS, TAGS[1].id), '#4285f4');
+  assert.equal(labelColor(TAGS, 'since-deleted-and-gone'), null);
+  assert.equal(labelColor(TAGS, null), null);
+  assert.equal(findLabel(TAGS, TAGS[0].id).name, 'Classes');
+});
+
+test('a tag id off the wire is a uuid or it is no tag at all', () => {
+  assert.equal(normalizeLabelId(TAGS[0].id), TAGS[0].id);
+  assert.equal(normalizeLabelId(''), null);
+  assert.equal(normalizeLabelId(null), null);
+  assert.equal(normalizeLabelId('<script>'), null);
+});
+
+test("a task's tag is sent with its block, and retagging is a change", () => {
+  const [item] = dayPushItems([
+    mk({
+      id: '1', title: 'Lecture', planned_date: DATE, scheduled_start: '09:00',
+      google_label_id: TAGS[0].id,
+    }),
+  ], DATE);
+  assert.equal(item.labelId, TAGS[0].id);
+
+  const [untagged] = dayPushItems([
+    mk({ id: '1', title: 'Lecture', planned_date: DATE, scheduled_start: '09:00' }),
+  ], DATE);
+  assert.notEqual(itemSignature(item), itemSignature(untagged));
+});
+
+test('a tag survives the round trip through the push body', () => {
+  const [item] = normalizePushItems([
+    { taskId: '1', title: 'Lecture', start: '09:00', minutes: 60, labelId: TAGS[0].id },
+  ]);
+  assert.equal(item.labelId, TAGS[0].id);
+
+  const [scrubbed] = normalizePushItems([
+    { taskId: '1', title: 'Lecture', start: '09:00', minutes: 60, labelId: 'not a uuid' },
+  ]);
+  assert.equal(scrubbed.labelId, null);
 });
 
 test('a finished block is still sent: the day happened', () => {

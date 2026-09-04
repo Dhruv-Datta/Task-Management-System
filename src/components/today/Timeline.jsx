@@ -26,12 +26,14 @@
               contains. Not a task, cannot be completed, has no due date, and
               lives in app_settings rather than in the task table (/api/events).
     a GOOGLE  an event off your real calendar. Drawn in the colour Google draws
-      event   it in, and INERT — no drag, no resize, no ×, nothing to click. It
-              is not yours to move from in here; it is the shape of the day you
-              are planning into, and the only honest thing a planner can do with
-              somebody else's ten o'clock is show it to you and stay out of the
-              way. All-day ones have no hour to sit at, so they go in a strip
-              above the grid, the way every calendar draws them.
+      event   it in, and — where it is yours to change — moved, resized, renamed,
+              retagged and deleted exactly like everything else here, with the
+              write going straight back to Google (/api/google/event). A
+              read-only calendar's events, and a meeting somebody else
+              organized, are still drawn and still taggable but do not pick up
+              under the pointer; see `movable` in lib/googleEvents. All-day ones
+              have no hour to sit at, so they go in a strip above the grid, the
+              way every calendar draws them.
 
   Overlapping blocks are drawn side by side rather than stacked, because a task
   hidden underneath a lecture is exactly the collision this exists to show.
@@ -60,6 +62,9 @@
     drag empty canvas             draw a new commitment the length of the drag.
     click empty canvas            the same thing, an hour long.
     click a block                 open what it is.
+    right-click a block           the tag menu: the coloured labels you keep
+                                  your calendar in, and — on one of Google's own
+                                  events — rename and delete (see BlockMenu).
 
   All of them are plain pointer events rather than dnd-kit, and that is not an
   accident. dnd-kit moves an ELEMENT by a transform: the right tool for carrying
@@ -77,15 +82,17 @@
   because the only thing being measured is where the cursor is NOW.
 */
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { CalendarPlus, Clock, X } from 'lucide-react';
 import {
   DAY_WINDOW_END, MINUTES_PER_DAY, clockToMinutes, dayMinutes, formatClock, formatClockRange,
   formatHourLabel,
 } from '@/lib/dates';
+import { descriptionPreview, labelColor } from '@/lib/googleEvents';
 import { TASK_COLOR, inkOn } from '@/lib/colors';
 import { Panel, PanelHead } from '@/components/dashboard/Panel';
+import BlockMenu from './BlockMenu';
 
 /** One minute, one pixel: the arithmetic and the drawing are the same numbers. */
 export const PX_PER_MINUTE = 1;
@@ -154,9 +161,9 @@ function blockBox({ start, minutes, column, columns }, origin) {
   which has room to breathe.
 */
 const TYPE = {
-  tight: { pad: 'px-1.5 py-0',     title: 'text-[10px] leading-[13px]', time: 'text-[10px] leading-[13px]' },
-  snug:  { pad: 'px-1.5 py-[1px]', title: 'text-[11px] leading-[13px]', time: 'text-[10px] leading-[12px]' },
-  roomy: { pad: 'px-2 py-[3px]',   title: 'text-[12px] leading-[15px]', time: 'text-[11px] leading-[14px]' },
+  tight: { pad: 'px-1.5 py-0',     title: 'text-[10px] leading-[13px]', time: 'text-[10px] leading-[13px]', note: 'text-[10px] leading-[13px]' },
+  snug:  { pad: 'px-1.5 py-[1px]', title: 'text-[11px] leading-[13px]', time: 'text-[10px] leading-[12px]', note: 'text-[10px] leading-[13px]' },
+  roomy: { pad: 'px-2 py-[3px]',   title: 'text-[12px] leading-[15px]', time: 'text-[11px] leading-[14px]', note: 'text-[11px] leading-[14px]' },
 };
 const typeFor = height => (height < 22 ? TYPE.tight : height < 40 ? TYPE.snug : TYPE.roomy);
 
@@ -186,6 +193,36 @@ function HourLine({ minute, origin }) {
 }
 
 /*
+  THE DESCRIPTION ON THE BLOCK ITSELF, and the two numbers that decide it.
+
+  AN HOUR is the threshold, and it is a duration rather than a pixel count on
+  purpose: it is the same rule at any zoom, and it is the honest one — under an
+  hour there is one line spare, and a single clipped line of prose under a title
+  is not information, it is a smudge that makes the block look broken. At an
+  hour there is room for a real sentence, and above it the block grows a line at
+  a time until it is showing the lot.
+
+  How many lines that is, is measured rather than guessed: the box's own height,
+  less what the title and the clock already take, divided by the line it is set
+  in. So a 90-minute block shows three lines and a four-hour block shows ten,
+  without a table of special cases — and CSS puts the ellipsis on the last one,
+  at whatever height the block actually is, which is the only place that can
+  know where the text ran out.
+*/
+const DESCRIPTION_MIN_MINUTES = 60;
+
+/** What the title and the clock have already spent, in pixels. */
+const FACE_HEAD = 40;
+const MAX_DESCRIPTION_LINES = 10;
+
+/** The words under a block's clock, wherever that kind of block keeps them. */
+function descriptionOf(block) {
+  if (block.kind === 'task') return block.task?.notes || '';
+  if (block.kind === 'event') return block.event?.notes || '';
+  return block.external?.description || '';
+}
+
+/*
   THE TWO LINES a block carries, at the size its height allows.
 
   Shared by all three things drawn on this grid — a task, somebody else's
@@ -198,7 +235,9 @@ function HourLine({ minute, origin }) {
   you are checking. On a strip, where there is only ever one line, it replaces
   the name with the range for the same reason.
 */
-function BlockFace({ title, start, minutes, type, strong = false, action = null }) {
+function BlockFace({
+  title, start, minutes, type, strong = false, action = null, description = '', lines = 0,
+}) {
   const range = formatClockRange(start, minutes);
 
   if (type === TYPE.tight) {
@@ -226,8 +265,98 @@ function BlockFace({ title, start, minutes, type, strong = false, action = null 
       >
         {range}
       </div>
+
+      {/*
+        Clamped by the browser rather than cut by us, because only the browser
+        knows how wide this block ended up — two overlapping blocks split the
+        column between them, and the same sentence is two lines in one and four
+        in the other. `-webkit-line-clamp` is what puts the … on the last line
+        it kept; every engine this runs in supports it under that name.
+
+        Quieter than the clock above it: it is the thing you read when you have
+        already found the block, not the thing you find it by.
+      */}
+      {description && lines > 0 && (
+        <div
+          style={{
+            display: '-webkit-box',
+            WebkitBoxOrient: 'vertical',
+            WebkitLineClamp: lines,
+            overflow: 'hidden',
+            opacity: 0.75,
+          }}
+          className={`mt-[2px] ${type.note}`}
+        >
+          {description}
+        </div>
+      )}
     </>
   );
+}
+
+/*
+  WHAT A BLOCK IS DRAWN IN.
+
+  A tag first, wherever there is one: the whole point of tagging an hour is that
+  you recognise what kind of hour it is by its colour, and that colour has to be
+  the one Google draws it in or the two calendars are telling you different
+  things about the same afternoon.
+
+  Failing that, the three defaults, which are three different sentences:
+
+    a task        Tomato, the one red every task block has always been (see
+                  TASK_COLOR). Untagged, the useful distinction on a day is
+                  between the hours you gave yourself and the hours somebody
+                  else already owns, and one colour for all of yours draws that
+                  line in a glance.
+    a commitment  slate. It is the shape of the day rather than something you
+                  chose, which is the job Google gives its own graphite.
+    an event      whatever Google says, which is the label, the event's own
+                  colour, or its calendar's — resolved on the way in
+                  (`eventColor` in lib/googleEvents) so a lecture is the colour
+                  you know it by.
+*/
+function fillFor(block, labels) {
+  const tagged = labelColor(labels, block.labelId);
+  if (tagged) return tagged;
+  if (block.kind === 'external') return block.external.color;
+  return block.kind === 'task' ? TASK_COLOR : COMMITMENT_COLOR;
+}
+
+/*
+  The hover text, which is where the detail that will not fit in a
+  fourteen-pixel box lives: what it is, when, whose calendar, where — and, for
+  one that spills over a midnight, which midnight.
+*/
+function tooltipFor(block, start, minutes) {
+  const when = `${block.title} · ${formatClockRange(start, minutes)}`;
+  // Under an hour the block has no room to draw it, and a quarter-hour with a
+  // note on it should not be the one thing here you cannot read at all.
+  const note = descriptionPreview(descriptionOf(block), 200);
+  if (block.kind !== 'external') return note ? `${when}\n${note}` : when;
+
+  const event = block.external;
+  const spill = event.clipped === 'both'
+    ? 'started yesterday, runs into tomorrow'
+    : event.clipped === 'start'
+      ? 'started yesterday'
+      : event.clipped === 'end'
+        ? 'runs into tomorrow'
+        : null;
+
+  return [
+    event.title,
+    formatClockRange(start, minutes),
+    note,
+    spill,
+    event.location,
+    // What YOU called this colour. A block that says "Chill Vibes" explains
+    // itself in a way "blue" never will.
+    event.label,
+    event.calendar && `on ${event.calendar}`,
+    event.recurring && 'repeats — changes here apply to this one',
+    event.movable ? 'Drag to move · right-click to tag' : 'Not moved from here — right-click to tag',
+  ].filter(Boolean).join('\n');
 }
 
 /*
@@ -249,9 +378,29 @@ function BlockFace({ title, start, minutes, type, strong = false, action = null 
   move re-reads the pointer's absolute position over the canvas and adds that
   offset back. Absolute rather than incremental, so a mid-drag scroll (which
   moves the canvas but not the cursor) lands where you are pointing.
+
+  ONE COMPONENT FOR ALL THREE KINDS, including somebody else's meeting, which
+  used to be a separate and deliberately gesture-less component. The argument for
+  that was that a planner cannot honestly offer to move a thing it has nowhere to
+  send the move to — and it was right until there was somewhere. Now there is
+  (/api/google/event), so the honest thing is the opposite: a calendar where half
+  the blocks move and half do not, with no way to tell which from looking, is a
+  calendar you have to experiment on.
+
+  What is still true is that not everything CAN move, and that is carried per
+  block rather than per kind (see `movable` in lib/googleEvents): a read-only
+  calendar and a meeting somebody else organized are both drawn, both taggable
+  where the calendar allows it, and neither picks up under the pointer. A block
+  that cannot move has no pointer handlers at all rather than handlers that
+  decline — a thing you cannot drag is best built as a thing with no drag in it,
+  and then it cannot start moving by accident three refactors from now.
 */
-function Block({ block, origin, toMinute, autoScroll, onOpen, onUnschedule, onChange, onEditEvent }) {
+function Block({
+  block, origin, toMinute, autoScroll, labels, movable,
+  onOpen, onUnschedule, onChange, onEditEvent, onMenu,
+}) {
   const isTask = block.kind === 'task';
+  const isExternal = block.kind === 'external';
 
   // The geometry while a gesture is running; null when nothing is happening.
   const [draft, setDraft] = useState(null);
@@ -268,13 +417,20 @@ function Block({ block, origin, toMinute, autoScroll, onOpen, onUnschedule, onCh
   const box = blockBox({ start, minutes, column: block.column, columns: block.columns }, origin);
   const type = typeFor(box.height);
 
-  /*
-    SOLID, and the same red for every task you own (see TASK_COLOR): the day
-    reads as yours against everybody else's. A commitment of your own is not a
-    task and takes the neutral.
-  */
-  const fill = isTask ? TASK_COLOR : COMMITMENT_COLOR;
+  const fill = fillFor(block, labels);
   const ink = inkOn(fill);
+
+  /*
+    An hour buys the first line of the description; every fourteen pixels after
+    that buys another. Computed from the DRAFT height rather than the stored one,
+    so a block resized past the hour grows its description while you are still
+    holding the edge — the block on screen is always the block you are about to
+    commit, which is the rule the whole of this component is built on.
+  */
+  const description = minutes >= DESCRIPTION_MIN_MINUTES ? descriptionPreview(descriptionOf(block)) : '';
+  const descriptionLines = description
+    ? clamp(Math.floor((box.height - FACE_HEAD) / 14), 1, MAX_DESCRIPTION_LINES)
+    : 0;
 
   /*
     No preventDefault on pointerdown, deliberately. Cancelling it also cancels
@@ -356,25 +512,40 @@ function Block({ block, origin, toMinute, autoScroll, onOpen, onUnschedule, onCh
   // middle of a 30-minute block is still the block.
   const edgeClass = 'absolute left-0 right-0 h-[8px] cursor-ns-resize z-10';
 
+  /*
+    Where a block sits in the stack, and it is the same rule it has always been:
+    yours on top of Google's, so a task you drop over a meeting is the one you
+    can still see and click. The overlap IS the warning, and the thing you can
+    act on should be the thing on top. Whatever is mid-gesture wins over both,
+    because while you are holding it, it is the only block you are looking at.
+  */
+  const depth = moving ? 30 : isExternal ? 5 : 10;
+
   return (
     <div
-      onPointerDown={begin('move')}
+      onPointerDown={movable ? begin('move') : undefined}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onMenu(block, { x: e.clientX, y: e.clientY });
+      }}
       onClick={() => {
         if (draggedRef.current) return;
-        if (isTask) onOpen(block.task); else onEditEvent(block.event);
+        if (isTask) onOpen(block.task);
+        else if (!isExternal) onEditEvent(block.event);
       }}
-      title={`${block.title} · ${formatClockRange(start, minutes)}`}
+      title={tooltipFor(block, start, minutes)}
       style={{
         position: 'absolute',
         ...box,
         backgroundColor: fill,
         color: ink,
         touchAction: 'none',
-        zIndex: moving ? 30 : 10,
+        zIndex: depth,
       }}
-      className={`group/block overflow-hidden rounded-md cursor-grab active:cursor-grabbing select-none shadow-sm transition-shadow hover:shadow-md ${type.pad} ${
-        moving ? 'shadow-xl ring-2 ring-white/80' : ''
-      }`}
+      className={`group/block overflow-hidden rounded-md select-none shadow-sm transition-shadow hover:shadow-md ${type.pad} ${
+        movable ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'
+      } ${moving ? 'shadow-xl ring-2 ring-white/80' : ''}`}
     >
       <BlockFace
         title={block.title}
@@ -382,6 +553,8 @@ function Block({ block, origin, toMinute, autoScroll, onOpen, onUnschedule, onCh
         minutes={minutes}
         type={type}
         strong={moving}
+        description={description}
+        lines={descriptionLines}
         action={isTask ? (
           <button
             type="button"
@@ -405,86 +578,24 @@ function Block({ block, origin, toMinute, autoScroll, onOpen, onUnschedule, onCh
           turns to ns-resize on the 8px that resize and stays a grab hand on the
           middle that moves, which is the same signal a window edge gives and
           costs the block no ink. */}
-      <span
-        onPointerDown={begin('top')}
-        onClick={e => e.stopPropagation()}
-        title="Drag to change when it starts"
-        style={{ top: 0, touchAction: 'none' }}
-        className={edgeClass}
-      />
-      <span
-        onPointerDown={begin('bottom')}
-        onClick={e => e.stopPropagation()}
-        title="Drag to change when it ends"
-        style={{ bottom: 0, touchAction: 'none' }}
-        className={edgeClass}
-      />
-    </div>
-  );
-}
-
-/*
-  SOMEBODY ELSE'S HOUR.
-
-  A Google event, and the shortest component on the page, because almost all of
-  Block above is gestures — and this one has none. Not disabled gestures: NO
-  gestures. There is no pointer handler to stop, no click to swallow, no × to
-  hide behind a permission check. A thing you cannot move is best built as a
-  thing that has no way to move, and then it cannot start moving by accident
-  three refactors from now.
-
-  It is drawn solid in the colour Google draws it in, exactly like everything
-  else on the grid, because a lecture at nine is as real a fact as the hour you
-  gave yourself and half-drawing it would say otherwise — and because the whole
-  point of the colour is that the calendar you recognise by it is recognisable
-  here. What separates yours from theirs is not weight, it is behaviour: yours
-  lift under the pointer and carry an ×, this does nothing at all.
-
-  It sits UNDER the task blocks (a lower z-index), so a task you drop on top of
-  a meeting is the one you can still see and click — the overlap is the warning,
-  and the thing you can act on should be the thing on top.
-*/
-function ExternalBlock({ block, origin }) {
-  const event = block.external;
-  const box = blockBox(block, origin);
-  const type = typeFor(box.height);
-  const ink = inkOn(event.color);
-
-  // The tooltip is where the detail lives, since the block itself does nothing
-  // when you click it: what it is, when, whose calendar, where — and, for one
-  // that spills over a midnight, which midnight.
-  const spill = block.external.clipped === 'both'
-    ? 'started yesterday, runs into tomorrow'
-    : block.external.clipped === 'start'
-      ? 'started yesterday'
-      : block.external.clipped === 'end'
-        ? 'runs into tomorrow'
-        : null;
-  const tooltip = [
-    event.title,
-    formatClockRange(block.start, block.minutes),
-    spill,
-    event.location,
-    // What YOU called this colour. A block that says "Chill Vibes" explains
-    // itself in a way "blue" never will.
-    event.label,
-    event.calendar && `on ${event.calendar}`,
-    'Google Calendar — not editable here',
-  ].filter(Boolean).join('\n');
-
-  return (
-    <div
-      title={tooltip}
-      style={{
-        position: 'absolute',
-        ...box,
-        backgroundColor: event.color,
-        color: ink,
-        zIndex: 5,
-      }}
-      className={`overflow-hidden rounded-md select-none cursor-default shadow-sm ${type.pad}`}
-    >
-      <BlockFace title={event.title} start={block.start} minutes={block.minutes} type={type} />
+      {movable && (
+        <>
+          <span
+            onPointerDown={begin('top')}
+            onClick={e => e.stopPropagation()}
+            title="Drag to change when it starts"
+            style={{ top: 0, touchAction: 'none' }}
+            className={edgeClass}
+          />
+          <span
+            onPointerDown={begin('bottom')}
+            onClick={e => e.stopPropagation()}
+            title="Drag to change when it ends"
+            style={{ bottom: 0, touchAction: 'none' }}
+            className={edgeClass}
+          />
+        </>
+      )}
     </div>
   );
 }
@@ -550,9 +661,47 @@ function DropGhost({ preview, origin, fill }) {
   );
 }
 
+/*
+  THE TAG VOCABULARY, and why it is one prop rather than a lookup per block.
+
+  A tag is a Google event LABEL, and a label belongs to exactly one calendar
+  (its id is a UUID that is unique within it). So which tags a block may take is
+  decided entirely by where that block will be WRITTEN:
+
+    a Google event    the labels of the calendar it lives on. Its own, and
+                      nobody else's — offering a label from another calendar
+                      would be offering an id the write is about to reject.
+    a task, or a      the labels of the calendar the day is pushed to
+    commitment        (GOOGLE_CALENDAR_NAME). That is where a task's block ends
+                      up when you finish planning, so that is the only place its
+                      tag can mean anything.
+
+  `tags.own` is that second set, `tags.byCalendar` the first, and `tags.calendar`
+  the write calendar's NAME, which is the only thing worth saying when it has no
+  labels on it yet: "there are none" is unhelpful, "there are none on Personal /
+  Work" tells you where to go and make some.
+*/
+const NO_TAGS = { own: [], byCalendar: {}, calendar: null, connected: false };
+
+/*
+  The line under the menu's title: WHEN, and WHOSE. Both, because the menu is
+  opened over a wall of coloured boxes and "the one I right-clicked" deserves
+  more confirmation than a name that may be truncated to two words.
+*/
+function menuSubtitle(block) {
+  if (block.kind === 'external') {
+    const when = block.start === null ? 'All day' : formatClockRange(block.start, block.minutes);
+    return [when, block.external?.calendar && `on ${block.external.calendar}`].filter(Boolean).join(' · ');
+  }
+  const when = formatClockRange(block.start, block.minutes);
+  return `${when} · ${block.kind === 'task' ? 'on today' : 'commitment'}`;
+}
+
 export default function Timeline({
   timeline, events, nowMinutes, canvasRef,
   onOpenTask, onUnschedule, onPlaceTask, onPlaceEvent, onAddEvent, onEditEvent,
+  onPlaceExternal, onTagBlock, onRenameBlock, onDescribeBlock, onDeleteBlock,
+  tags = NO_TAGS,
   dragPreview = null, sticky = false, maxHeight = 'calc(100vh - 230px)',
   googleControl = null, fill = false,
 }) {
@@ -704,6 +853,105 @@ export default function Timeline({
   const ghost = drawn || dragPreview;
 
   /*
+    THE MENU: which block it is about, and where the pointer was when you asked
+    for it. One at a time, held here rather than on each block, because a
+    context menu is a fact about the page — opening a second one while the first
+    is up is not a thing any calendar does.
+
+    The block is looked up FRESH on every render rather than captured, so a menu
+    left open while its block is dragged, retagged or refreshed out from under
+    it is about the block as it now is; and one whose block has gone entirely (a
+    task unscheduled in another tab, an event deleted) closes itself rather than
+    describing something that is no longer on the grid.
+  */
+  const [menu, setMenu] = useState(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
+  const menuBlock = menu ? timeline.blocks.find(b => b.key === menu.key) || menu.allDay || null : null;
+  // Adjusted during render rather than in an effect: React re-renders before it
+  // commits, so a menu whose block has gone never reaches the screen at all —
+  // where an effect would let it draw once, pointed at nothing, and then vanish.
+  if (menu && !menuBlock) setMenu(null);
+
+  const labelsFor = block => (
+    block.kind === 'external' ? (tags.byCalendar?.[block.external?.calendarId] || []) : (tags.own || [])
+  );
+
+  /*
+    THE WORDS ON A BLOCK, which live in three different places and are one field
+    in the menu: a task's title and notes, a commitment's title and notes, and a
+    Google event's summary and description.
+
+    A task IS renameable from here, and that is a change of mind since the menu
+    was first written. The argument for keeping it out was that a name belongs
+    to the task and not to an hour — but the menu no longer has a Rename item to
+    mis-aim at; it has the name itself, sitting where the name already was, and
+    refusing to let you fix a typo in the one place you are looking at it is not
+    restraint, it is just a dead end. DELETE is still the line: removing a task
+    is a decision about work, not about an hour.
+  */
+  const wordsOf = (block) => {
+    // `descriptionOf` and not a second copy of the same three-way lookup: the
+    // menu edits exactly the text the block draws a preview of.
+    if (block.kind !== 'external') return { description: descriptionOf(block), editable: true };
+    const event = block.external || {};
+    return {
+      description: descriptionOf(block),
+      // Its words are yours unless somebody else organized it — and a
+      // description we only have PART of is never editable, because saving an
+      // edit to a truncated copy would drop the rest of it (see MAX_DESCRIPTION).
+      editable: !!event.editable,
+      clipped: !!event.descriptionClipped,
+    };
+  };
+
+  /*
+    Why the name and the description are not yours to change, when they are not.
+    A field that is simply inert reads as a bug; a field that says "somebody else
+    organized this" reads as Google, which is what it is.
+  */
+  const readOnlyNoteFor = (block) => {
+    if (block.kind !== 'external') return null;
+    const event = block.external || {};
+    // A read-only calendar is deliberately NOT explained twice: `noteFor` says
+    // it under the tag row, four lines further down, and two sentences saying
+    // the same thing read as two different problems.
+    if (!event.writable) return null;
+    if (event.descriptionClipped) {
+      return 'This description is longer than the day carries — edit it in Google Calendar.';
+    }
+    if (!event.editable) return 'Somebody else organized this, so its wording is theirs.';
+    return null;
+  };
+
+  /*
+    The one line under the tag pills, which exists because every empty or
+    reduced menu here has a REASON and none of them are the same reason. A menu
+    that just shows nothing is indistinguishable from a broken one.
+  */
+  const noteFor = (block) => {
+    if (block.kind === 'external') {
+      const event = block.external || {};
+      // Three different reasons a block does not pick up, and they need three
+      // different sentences: an empty menu that does not say which is a menu
+      // that reads as broken.
+      if (!event.writable) {
+        return `“${event.calendar || 'That calendar'}” is shared with you read-only, so this event cannot be changed here.`;
+      }
+      if (event.clipped) {
+        return 'This one crosses a midnight, so only part of it is on this day — move it in Google Calendar.';
+      }
+      if (!event.movable) return 'Somebody else organized this, so when it happens is theirs. Its tag is yours.';
+      if (event.recurring) return 'This repeats — a change here applies to this one only.';
+      return null;
+    }
+    if (!tags.connected) return 'Tags are Google Calendar’s. Connect it to use them.';
+    if ((tags.own || []).length > 0) return null;
+    return tags.calendar
+      ? `No tags on “${tags.calendar}” yet. Make some in Google Calendar and they show up here.`
+      : 'No calendar to write to yet, so there are no tags to give this.';
+  };
+
+  /*
     `fill`: on a wide screen the page around this is a fixed-height column (see
     /today), so the panel takes the height it is given and the hours scroll
     INSIDE it. That is the whole point — a calendar whose own scroll is also
@@ -746,22 +994,48 @@ export default function Timeline({
       {timeline.allDay?.length > 0 && (
         <div className="px-4 pb-2 flex items-center gap-1.5 flex-wrap">
           <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">All day</span>
-          {timeline.allDay.map(event => (
-            <span
-              key={event.id}
-              title={[event.title, event.location, event.label, event.calendar && `on ${event.calendar}`]
-                .filter(Boolean).join('\n')}
-              style={{ backgroundColor: `${event.color}1f`, borderColor: `${event.color}55` }}
-              className="inline-flex items-center gap-1.5 text-[11px] font-medium text-gray-600 border rounded-full pl-1.5 pr-2.5 py-[3px]"
-            >
+          {timeline.allDay.map((event) => {
+            /*
+              An all-day event is not a block — it has no hour to be drawn at —
+              but it is still one of your events, and the two questions you ask
+              about it are the two the menu answers. So it gets the same
+              right-click, dressed as the block it never was: the same shape
+              BlockMenu reads everywhere else, with no start and no length.
+            */
+            const asBlock = {
+              key: `allday-${event.id}`,
+              kind: 'external',
+              title: event.title,
+              labelId: event.labelId || null,
+              external: event,
+              start: null,
+              minutes: 0,
+            };
+            const tint = labelColor(labelsFor(asBlock), event.labelId) || event.color;
+            return (
               <span
-                aria-hidden
-                className="w-[6px] h-[6px] rounded-full flex-shrink-0"
-                style={{ backgroundColor: event.color }}
-              />
-              <span className="truncate max-w-[170px]">{event.title}</span>
-            </span>
-          ))}
+                key={event.id}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setMenu({ key: asBlock.key, point: { x: e.clientX, y: e.clientY }, allDay: asBlock });
+                }}
+                title={[
+                  event.title, event.location, event.label,
+                  event.calendar && `on ${event.calendar}`,
+                  'Right-click to tag',
+                ].filter(Boolean).join('\n')}
+                style={{ backgroundColor: `${tint}1f`, borderColor: `${tint}55` }}
+                className="inline-flex items-center gap-1.5 text-[11px] font-medium text-gray-600 border rounded-full pl-1.5 pr-2.5 py-[3px]"
+              >
+                <span
+                  aria-hidden
+                  className="w-[6px] h-[6px] rounded-full flex-shrink-0"
+                  style={{ backgroundColor: tint }}
+                />
+                <span className="truncate max-w-[170px]">{event.title}</span>
+              </span>
+            );
+          })}
         </div>
       )}
 
@@ -870,23 +1144,27 @@ export default function Timeline({
             />
           )}
 
-          {timeline.blocks.map(block => (block.kind === 'external' ? (
-            <ExternalBlock key={block.key} block={block} origin={origin} />
-          ) : (
+          {timeline.blocks.map(block => (
             <Block
               key={block.key}
               block={block}
               origin={origin}
               toMinute={toMinute}
               autoScroll={autoScroll}
+              labels={labelsFor(block)}
+              // Yours always; Google's only where Google will take the write.
+              movable={block.kind !== 'external' || !!block.external?.movable}
               onOpen={onOpenTask}
               onUnschedule={onUnschedule}
-              onChange={(b, start, minutes) => (b.kind === 'task'
-                ? onPlaceTask(b.task, start, minutes)
-                : onPlaceEvent(b.event, start, minutes))}
+              onChange={(b, start, minutes) => {
+                if (b.kind === 'task') onPlaceTask(b.task, start, minutes);
+                else if (b.kind === 'event') onPlaceEvent(b.event, start, minutes);
+                else onPlaceExternal(b.external, start, minutes);
+              }}
               onEditEvent={onEditEvent}
+              onMenu={(b, point) => setMenu({ key: b.key, point })}
             />
-          )))}
+          ))}
 
           {timeline.blocks.length === 0 && !ghost && (
             <div className="absolute inset-0 flex items-start justify-center pt-16 pointer-events-none">
@@ -900,6 +1178,48 @@ export default function Timeline({
           )}
         </div>
       </div>
+
+      {/*
+        THE RIGHT-CLICK MENU, drawn once for whichever block asked for it.
+
+        What it offers is decided here rather than inside it, because the rule is
+        about this app's three kinds of block and not about menus. The name and
+        the description are editable wherever the thing holding them will take
+        the write — a task's on the task, a commitment's in the day's blob, a
+        Google event's in Google. DELETE is the one that stays narrow: a task is
+        not deleted from a calendar menu, because removing it is a decision
+        about work rather than about an hour, and a right-click is easy to
+        mis-aim.
+      */}
+      {menu && menuBlock && (() => {
+        const words = wordsOf(menuBlock);
+        return (
+          <BlockMenu
+            point={menu.point}
+            title={menuBlock.title}
+            subtitle={menuSubtitle(menuBlock)}
+            description={words.description}
+            labels={menuBlock.kind === 'external' && !menuBlock.external?.writable ? [] : labelsFor(menuBlock)}
+            labelId={menuBlock.labelId || null}
+            note={noteFor(menuBlock)}
+            readOnlyNote={readOnlyNoteFor(menuBlock)}
+            onTag={labelId => onTagBlock(menuBlock, labelId)}
+            onRename={words.editable ? title => onRenameBlock(menuBlock, title) : null}
+            // A truncated description is shown and not edited: the name above it
+            // is still perfectly safe to change, which is why these are two
+            // permissions rather than one.
+            onDescribe={
+              words.editable && !words.clipped ? text => onDescribeBlock(menuBlock, text) : null
+            }
+            onDelete={
+              menuBlock.kind === 'task' || (menuBlock.kind === 'external' && !menuBlock.external?.writable)
+                ? null
+                : () => onDeleteBlock(menuBlock)
+            }
+            onClose={closeMenu}
+          />
+        );
+      })()}
 
       {events.length > 0 && (
         <div className="px-5 py-2.5 border-t border-gray-100 flex items-center gap-2 flex-wrap">

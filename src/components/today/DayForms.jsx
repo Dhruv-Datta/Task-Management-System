@@ -202,7 +202,20 @@ export function EventDialog({ event, defaultStart, defaultMinutes = 60, onSave, 
   const save = () => {
     const name = title.trim();
     if (!name || clockToMinutes(start) === null) return;
-    onSave({ id: event?.id || `event_${Date.now()}`, title: name, start, minutes });
+    /*
+      The tag and the note are carried through untouched. Both are set from the
+      timeline's right-click menu and neither has a control here, so a save that
+      rebuilt the event from this form's fields alone would silently strip
+      something you wrote somewhere else.
+    */
+    onSave({
+      id: event?.id || `event_${Date.now()}`,
+      title: name,
+      start,
+      minutes,
+      labelId: event?.labelId || null,
+      notes: event?.notes || '',
+    });
     onClose();
   };
 

@@ -152,6 +152,21 @@ ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS scheduled_minutes integer;
 -- that puts a task into Attention a week out.
 ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS is_hard boolean NOT NULL DEFAULT false;
 
+-- Added for the timeline's TAGS: which Google Calendar event label this task's
+-- block is drawn in.
+--
+-- A tag is not a word of this app's own — it is a label you defined on the
+-- calendar the day is written to ("Work", "Classes", "Chill Vibes"), so a block
+-- you retag on the timeline is that colour in Google too, and means there what
+-- it means here. Only the ID is kept: the name and the colour belong to Google,
+-- are read with the day (/api/google/day), and renaming a label there must not
+-- leave a stale copy of the old name sitting in this table.
+--
+-- Null is the ordinary state and means "no tag" — the block is drawn in Tomato,
+-- the one red every task block used to be. A label since deleted in Google
+-- reads as exactly the same thing, which is why nothing here is a foreign key.
+ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS google_label_id text;
+
 -- REMOVED: `tag`, one free-text word per task. Nothing wrote one worth the row
 -- it took up in the editor, so the field, the board's group-by-tag and the chip
 -- are gone from the app and nothing reads the column any more.
@@ -221,8 +236,9 @@ CREATE INDEX IF NOT EXISTS idx_tasks_planned
 --  2. APP SETTINGS: small JSON blobs
 --     Keys in use: 'task_lists', 'task_list_groups', 'active_task_list_id',
 --     'day_events' (the fixed commitments on /today's timeline: one entry per
---     day, { 'YYYY-MM-DD': [{ id, title, start, minutes }] }, pruned as it is
---     written) and 'day_plans' (how far through the day's planning flow you
+--     day, { 'YYYY-MM-DD': [{ id, title, start, minutes, labelId }] }, pruned as
+--     it is written; `labelId` is the same Google event label a task's
+--     google_label_id names, and colours the block on the grid) and 'day_plans' (how far through the day's planning flow you
 --     are: { 'YYYY-MM-DD': { step, started, finalized } }, pruned the same
 --     way). An event is not a task and must never become one: it is something
 --     the day already contains, not something you owe.

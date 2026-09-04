@@ -5,7 +5,7 @@ import { prunePlans as keepRecentDays } from './dayPlan.js';
 import { DAY_WINDOW_END, MINUTES_PER_DAY, addDaysISO, dayClock, dayMinutes } from './dates.js';
 import {
   DATE_PROPERTY, MAX_EXTERNAL_EVENTS, TASK_ID_PROPERTY, daySignature, externalFromGoogle,
-  itemSignature,
+  itemSignature, normalizeLabels,
 } from './googleEvents.js';
 import { forgetAccessToken, getAccessToken } from './googleAuth.js';
 
@@ -267,7 +267,12 @@ async function calendarLabels(supabase, calendarId) {
   try {
     const calendar = await callGoogle(supabase, `/calendars/${encodeURIComponent(calendarId)}`);
     for (const label of calendar?.labelProperties?.eventLabels || []) {
-      if (label?.id) labels[label.id] = { backgroundColor: label.backgroundColor, name: label.name || '' };
+      // The id goes in the VALUE as well as the key, so `Object.values` is
+      // already the list the tag menu wants and nothing has to zip it back
+      // together (see `normalizeLabels` in lib/googleEvents).
+      if (label?.id) {
+        labels[label.id] = { id: label.id, backgroundColor: label.backgroundColor, name: label.name || '' };
+      }
     }
   } catch (err) {
     console.error(`Failed to read the labels on Google calendar "${calendarId}"`, err);
@@ -310,17 +315,20 @@ const sameName = (a, b) => (
  * Missed once, the cache is dropped and it looks again — the overwhelmingly
  * likely reason for a miss is that you have just this minute made the calendar,
  * and being told "no such calendar" about one you are looking at would be
- * absurd.
+ * absurd. That second look is worth a round trip where a MISS COSTS YOU
+ * something, which is the push; it is not worth one on every page load, so
+ * `retry: false` is how the tag menu asks the same question cheaply and waits
+ * for your next visit to notice a calendar made thirty seconds ago.
  *
  * Two ways to fail, and they need different sentences: there is no calendar by
  * that name, or there is one and Google will not let us write to it (a calendar
  * somebody else shared with you read-only). Neither is recoverable by retrying,
  * so both say what to go and do.
  */
-export async function writeCalendar(supabase) {
+export async function writeCalendar(supabase, { retry = true } = {}) {
   let match = (await fetchCalendarList(supabase)).find(c => sameName(c.summary, WRITE_CALENDAR_NAME));
 
-  if (!match) {
+  if (!match && retry) {
     calendarListCache = null;
     match = (await fetchCalendarList(supabase)).find(c => sameName(c.summary, WRITE_CALENDAR_NAME));
   }
@@ -339,6 +347,26 @@ export async function writeCalendar(supabase) {
   }
 
   return match;
+}
+
+/**
+ * The calendar the day is written to, and the TAGS defined on it — which are
+ * the ones a task block or a commitment of your own may be given, because they
+ * are the ones that will still mean something when the day is sent.
+ *
+ * Never throws. There may be no such calendar yet, and that is a fact about
+ * sending the day rather than about drawing it: the tag menu on a task simply
+ * has nothing to offer and says why. The push is where a missing calendar is an
+ * error, because the push is where it stops something.
+ */
+export async function writeCalendarTags(supabase) {
+  try {
+    const target = await writeCalendar(supabase, { retry: false });
+    const labels = await calendarLabels(supabase, target.id);
+    return { id: target.id, name: target.summary, labels: normalizeLabels(Object.values(labels)) };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -385,7 +413,14 @@ async function readCalendarDay(supabase, calendar, { date, timeZone, palette }) 
  * "three of your four calendars" instead of silently drawing a thinner day.
  */
 export async function readGoogleDay(supabase, { date, timeZone }) {
-  const [calendars, palette] = await Promise.all([listCalendars(supabase), colorPalette(supabase)]);
+  const [calendars, palette, writeTags] = await Promise.all([
+    listCalendars(supabase),
+    colorPalette(supabase),
+    // The tags a task block may take. Read alongside the day rather than on its
+    // own request, for the same reason everything else here is: /today asks all
+    // of these questions in the same breath or not at all.
+    writeCalendarTags(supabase),
+  ]);
 
   // The labels come alongside the events rather than before them: they are one
   // request per calendar, they are cached, and nothing about reading a day
@@ -402,6 +437,13 @@ export async function readGoogleDay(supabase, { date, timeZone }) {
 
   const events = [];
   const failed = [];
+  /*
+    The tags, per calendar, so the menu on a Google event offers the labels of
+    the calendar it actually lives on. They belong to one calendar each (the id
+    is unique within it), so a flat list of everything would be a menu where
+    half the entries are ids the write is about to reject.
+  */
+  const labelsByCalendar = {};
   results.forEach((result, i) => {
     if (result.status === 'rejected') {
       failed.push(calendars[i].summary);
@@ -409,6 +451,7 @@ export async function readGoogleDay(supabase, { date, timeZone }) {
       return;
     }
     const { calendar, labels, items } = result.value;
+    labelsByCalendar[calendar.id] = normalizeLabels(Object.values(labels));
     for (const raw of items) {
       const event = externalFromGoogle(raw, { date, timeZone, calendar: { ...calendar, labels }, palette });
       if (event) events.push(event);
@@ -419,6 +462,8 @@ export async function readGoogleDay(supabase, { date, timeZone }) {
     events: events.slice(0, MAX_EXTERNAL_EVENTS),
     calendars: calendars.length,
     failed,
+    labels: labelsByCalendar,
+    writeCalendar: writeTags,
   };
 }
 
@@ -427,7 +472,7 @@ export async function readGoogleDay(supabase, { date, timeZone }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /*
-      google_pushed → { 'YYYY-MM-DD': { at, events: { taskId: { eventId, calendarId, sig } } } }
+      google_pushed → { 'YYYY-MM-DD': { at, events: { taskId: { eventId, calendarId, sig, label } } } }
 
   One entry per task per day: the Google event we created for it, WHICH CALENDAR
   it went to, and the signature of what we told Google (see `itemSignature`).
@@ -435,6 +480,12 @@ export async function readGoogleDay(supabase, { date, timeZone }) {
   — a day of eight blocks where you moved one is one PATCH — and comparing the
   whole day's worth against the day on screen is what lets /today say "you have
   changed something since you sent this".
+
+  `label` is the tag as Google was last told it, and it is here for one reason:
+  a patch cannot express "no longer tagged" by omission (see `clearLabel`), so
+  the push has to know whether there is a label to take off before it can put a
+  block back to Tomato. Absent on an entry written before tags existed, which
+  reads correctly as "no tag was ever set".
 
   `calendarId` is what makes the target calendar changeable. An event lives
   where it was written, not where we would write it today, so moving the
@@ -521,21 +572,31 @@ export async function readPushState(supabase, date) {
  * afternoon; a default ten-minute popup for each of six of them turns a plan
  * into a machine that interrupts you all day.
  */
-function eventBody(item, { date, timeZone }) {
-  /*
-    WHICH CALENDAR DATE a block lands on is not always the date it is planned
-    for, and this is where a day that runs 4am to 4am has to be turned back into
-    dates Google understands. A block stored as '01:00' on the 3rd is one in the
-    morning of the 4TH — the small hours at the end of the 3rd's day — so both
-    ends are worked out from the block's position ON THE DAY rather than from
-    its clock string, and either end may fall on tomorrow.
-  */
-  const start = dayMinutes(item.start);
-  const end = Math.min(start + item.minutes, DAY_WINDOW_END);
-  // '24:00' is not a time and Google rejects it, so anything at or past
-  // midnight is said as tomorrow's clock on tomorrow's date.
-  const onDay = minutes => (minutes >= MINUTES_PER_DAY ? addDaysISO(date, 1) : date);
+/*
+  WHICH CALENDAR DATE a block lands on is not always the date it is planned for,
+  and this is where a day that runs 4am to 4am has to be turned back into dates
+  Google understands. A block at minute 1500 of the 3rd is one in the morning of
+  the 4TH — the small hours at the END of the 3rd's day — so both ends are worked
+  out from the block's position ON THE DAY, and either end may fall on tomorrow.
 
+  '24:00' is not a time and Google rejects it, so anything at or past midnight is
+  said as tomorrow's clock on tomorrow's date.
+
+  Shared by the two things that write a time into Google — the day's own blocks,
+  and a meeting of yours dragged on this grid — because "where is this on the
+  4am day" is the same question whoever is asking it, and answering it twice is
+  how one of the two ends up an hour out in October.
+*/
+function blockTimes(start, minutes, { date, timeZone }) {
+  const end = Math.min(start + minutes, DAY_WINDOW_END);
+  const onDay = m => (m >= MINUTES_PER_DAY ? addDaysISO(date, 1) : date);
+  return {
+    start: { dateTime: `${onDay(start)}T${dayClock(start)}:00`, timeZone },
+    end: { dateTime: `${onDay(end)}T${dayClock(end)}:00`, timeZone },
+  };
+}
+
+function eventBody(item, { date, timeZone }) {
   /*
     The title, the time, and nothing else. No description: an event whose whole
     content is the app that made it is a line of noise in the one place you look
@@ -545,14 +606,53 @@ function eventBody(item, { date, timeZone }) {
   */
   return {
     summary: item.title,
-    colorId: PLANNED_COLOR_ID,
-    start: { dateTime: `${onDay(start)}T${dayClock(start)}:00`, timeZone },
-    end: { dateTime: `${onDay(end)}T${dayClock(end)}:00`, timeZone },
+    /*
+      THE COLOUR, said in whichever of Google's two vocabularies applies.
+
+      A tagged block is `eventLabelId` — the named colour you defined on the
+      calendar ("Classes", "Chill Vibes"), which Google's docs are explicit
+      SUPERSEDES colorId, and which is what its own UI now sets. An untagged one
+      is the Tomato it has always been. Never both: under eventLabelVersion=1
+      (see `eventParams`) colorId is ignored outright, so sending it as well
+      would be a line that reads as a fallback and is not one.
+    */
+    ...(item.labelId ? { eventLabelId: item.labelId } : { colorId: PLANNED_COLOR_ID }),
+    ...blockTimes(dayMinutes(item.start), item.minutes, { date, timeZone }),
     reminders: { useDefault: false, overrides: [] },
     extendedProperties: {
       private: { [TASK_ID_PROPERTY]: item.taskId, [DATE_PROPERTY]: date },
     },
   };
+}
+
+/*
+  `eventLabelVersion=1` is how a client tells Google it understands labels, and
+  Google will not read `eventLabelId` out of a body without it — an insert or a
+  patch that omits it is quietly processed as a colorId-only write, which is the
+  one failure mode here that looks exactly like nothing happening.
+
+  It is sent only when there IS a tag, because it is not free: under version 1
+  colorId stops being processed at all, so a blanket flag would make the untagged
+  block's Tomato unsettable.
+*/
+const eventParams = item => (item.labelId ? { eventLabelVersion: 1 } : undefined);
+
+/*
+  TAKING A TAG OFF, which is not the same write as putting one on.
+
+  A patch that merely stops mentioning `eventLabelId` leaves the label exactly
+  where it was — Google patches are partial, and "no longer tagged" is a value,
+  not an absence. So an untagging is said explicitly, in the label vocabulary
+  (version 1, `eventLabelId: null`), and only then does the ordinary body put
+  the Tomato back. Two calls, on the one transition that needs them, rather than
+  a flag on every push.
+*/
+async function clearLabel(supabase, calendarId, eventId) {
+  await callGoogle(
+    supabase,
+    `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+    { method: 'PATCH', params: { eventLabelVersion: 1 }, body: { eventLabelId: null } }
+  );
 }
 
 /*
@@ -648,22 +748,31 @@ export async function pushGoogleDay(supabase, { date, timeZone, items }) {
           result.unchanged += 1;
           continue;
         }
+        // A tag that has been taken off has to be taken off in so many words
+        // before the body below can put the red back. Known from what we last
+        // wrote, so an untouched tag costs nothing.
+        if (!item.labelId && known.label) await clearLabel(supabase, calendar.id, known.eventId);
         await callGoogle(
           supabase,
           `/calendars/${encodeURIComponent(calendar.id)}/events/${encodeURIComponent(known.eventId)}`,
-          { method: 'PATCH', body: eventBody(item, { date, timeZone }) }
+          { method: 'PATCH', params: eventParams(item), body: eventBody(item, { date, timeZone }) }
         );
-        next[item.taskId] = { eventId: known.eventId, calendarId: calendar.id, sig: signature };
+        next[item.taskId] = {
+          eventId: known.eventId, calendarId: calendar.id, sig: signature, label: item.labelId || null,
+        };
         result.updated += 1;
         continue;
       }
 
       const created = await callGoogle(supabase, `/calendars/${encodeURIComponent(calendar.id)}/events`, {
         method: 'POST',
+        params: eventParams(item),
         body: eventBody(item, { date, timeZone }),
       });
       if (created?.id) {
-        next[item.taskId] = { eventId: created.id, calendarId: calendar.id, sig: signature };
+        next[item.taskId] = {
+          eventId: created.id, calendarId: calendar.id, sig: signature, label: item.labelId || null,
+        };
         if (elsewhere) result.updated += 1; else result.created += 1;
       }
     }
@@ -693,6 +802,144 @@ export async function pushGoogleDay(supabase, { date, timeZone, items }) {
     stale: false,
     at: new Date().toISOString(),
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The other calendar: editing an event this app did not write
+// ─────────────────────────────────────────────────────────────────────────────
+
+/*
+  EVERYTHING ABOVE THIS LINE only ever touches an event carrying one of our task
+  ids. That rule made the push safe to trust, and it is not being relaxed: what
+  follows is a SECOND, separately addressed surface, where the id of the thing to
+  change arrives from the browser because you right-clicked or dragged the block
+  it is drawn as.
+
+  Which makes the guard a different one, and it is `writableCalendar`: every
+  write here is checked against your own calendar list first, so a request can
+  only ever reach a calendar you have write access to and that you are actually
+  looking at. A birthdays feed, a colleague's calendar shared read-only, and a
+  calendar id invented by a client are all refused before any request is made —
+  and refused with the sentence that says why, since "this one is not yours to
+  change" is information rather than an error.
+*/
+async function writableCalendar(supabase, calendarId) {
+  const match = (await fetchCalendarList(supabase)).find(c => c.id === calendarId);
+
+  if (!match) {
+    // The commonest reason is a stale page: a calendar unsubscribed from in
+    // another tab, or a connection since dropped. Drop the cache so the next
+    // attempt asks Google rather than repeating a minute-old answer.
+    calendarListCache = null;
+    throw new GoogleWriteCalendarError(
+      'That event’s calendar is no longer on this account. Refresh the day and try again.'
+    );
+  }
+  if (match.accessRole !== 'owner' && match.accessRole !== 'writer') {
+    throw new GoogleWriteCalendarError(
+      `“${match.summary}” is shared with you read-only, so its events cannot be changed from here.`
+    );
+  }
+  return match;
+}
+
+const eventPath = (calendarId, eventId) => (
+  `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`
+);
+
+/**
+ * CHANGE ONE OF YOUR REAL EVENTS: when it is, what it is called, what it says,
+ * what it is tagged. Whatever is passed is what changes; everything else about the event —
+ * its guests, its description, its notifications, its recurrence — is not
+ * mentioned, and Google's PATCH leaves what is not mentioned exactly alone.
+ *
+ * `start` is a position on the 4am day rather than a clock, because that is
+ * what a drag on the timeline produces and what the small hours need in order to
+ * be said at all (see `blockTimes`).
+ *
+ * `retag` is a separate flag from `labelId` because null is a value here: "take
+ * the tag off" and "leave the tag alone" are different requests, and a body
+ * that expressed both as a missing field would make the first one impossible.
+ *
+ * A RECURRING event arrives as the single occurrence Google expanded for this
+ * day (`singleEvents: true`), and its id addresses that occurrence, so this
+ * changes THIS Tuesday and not every Tuesday. That is the same thing Google's
+ * own UI does when you drag one and choose "This event", and the timeline says
+ * so before you do it.
+ */
+export async function patchExternalEvent(
+  supabase,
+  { calendarId, eventId, date, timeZone, start, minutes, title, description, labelId, retag = false }
+) {
+  const calendar = await writableCalendar(supabase, calendarId);
+
+  const body = {};
+  if (typeof start === 'number') Object.assign(body, blockTimes(start, minutes, { date, timeZone }));
+  if (typeof title === 'string') body.summary = title;
+  // An empty string is a real answer here and means "no description": it is how
+  // one gets cleared, and Google takes it as such.
+  if (typeof description === 'string') body.description = description;
+  /*
+    Setting and clearing are ONE call here, unlike a task's block: an event of
+    yours has no Tomato to put back underneath, so `eventLabelId: null` is the
+    whole of "no tag" — it drops the label and the event goes back to whatever
+    colour it had before you gave it one, which is exactly what Google's own
+    "Default colour" does.
+  */
+  if (retag) body.eventLabelId = labelId || null;
+
+  // Nothing asked for is not a request worth making. Better a no-op here than
+  // an empty PATCH that touches an `updated` timestamp for no reason.
+  if (Object.keys(body).length === 0) return { calendar: calendar.summary };
+
+  await callGoogle(supabase, eventPath(calendarId, eventId), {
+    method: 'PATCH',
+    // Only when a tag is in play, for the reason `eventParams` gives: version 1
+    // is what makes Google read the field, and it makes it stop reading colorId.
+    params: retag ? { eventLabelVersion: 1 } : undefined,
+    body,
+  });
+
+  return { calendar: calendar.summary };
+}
+
+/**
+ * DELETE one of your real events.
+ *
+ * The one gesture here that cannot be taken back, so it is the one that reads
+ * the event first. Two things are worth a round trip before removing something
+ * from a real person's calendar:
+ *
+ *   ours       an event carrying a task id is a block this app wrote, and it is
+ *              owned by the push (which knows how to remove it and how to forget
+ *              it afterwards). Deleting one through this door would leave
+ *              `google_pushed` pointing at nothing and the next send making a
+ *              second copy. It is refused, and the message says where the real
+ *              control is.
+ *   gone       410 and 404 are successes, not failures: you can delete one of
+ *              these in Google directly, and then deleting it here must not fail
+ *              forever on an event nobody has.
+ */
+export async function deleteExternalEvent(supabase, { calendarId, eventId }) {
+  await writableCalendar(supabase, calendarId);
+
+  let existing = null;
+  try {
+    existing = await callGoogle(supabase, eventPath(calendarId, eventId));
+  } catch (err) {
+    if (err.status !== 404 && err.status !== 410) throw err;
+    return { deleted: false, title: null };
+  }
+
+  if (existing?.extendedProperties?.private?.[TASK_ID_PROPERTY]) {
+    throw new GoogleWriteCalendarError(
+      'That block is one of this app’s own. Take the time off the task on the timeline instead, '
+      + 'and the next send removes it from Google.'
+    );
+  }
+
+  await deleteEvent(supabase, calendarId, eventId);
+  return { deleted: true, title: String(existing?.summary || '').trim() || null };
 }
 
 /**

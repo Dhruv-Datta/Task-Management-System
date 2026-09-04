@@ -180,6 +180,38 @@ export async function pushGoogleDay(date, timeZone, items) {
   return { ok: res.ok, ...data, error: res.ok ? null : (data.error || 'The day could not be sent.') };
 }
 
+/*
+  ONE OF YOUR REAL EVENTS, moved / renamed / retagged / removed.
+
+  Both answer with the whole refreshed day rather than a receipt, for the reason
+  the route gives: a moved event changes the overlap layout of everything around
+  it, and a browser cannot work that out from "ok".
+
+  They do NOT throw on a refusal. The commonest one is a calendar you may read
+  and not write (a shared timetable, a subscribed feed), and that is a sentence
+  to show beside the block rather than an exception to unwind the page with — so
+  the shape is the same `{ ok, error }` a task write uses.
+*/
+export async function patchGoogleEvent(payload) {
+  const res = await fetch('/api/google/event', {
+    method: 'PATCH',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(payload),
+  });
+  const data = await readJson(res);
+  return { ok: res.ok, ...data, error: res.ok ? null : (data.error || 'That event could not be changed.') };
+}
+
+export async function deleteGoogleEvent(payload) {
+  const res = await fetch('/api/google/event', {
+    method: 'DELETE',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(payload),
+  });
+  const data = await readJson(res);
+  return { ok: res.ok, ...data, error: res.ok ? null : (data.error || 'That event could not be deleted.') };
+}
+
 export async function disconnectGoogle() {
   const res = await fetch('/api/google', { method: 'DELETE' });
   return readJsonOrThrow(res);

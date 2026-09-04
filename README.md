@@ -282,8 +282,18 @@ put something outside it.
 
 Beside it sits the work that has no time on it yet;
 that column empties as you drag, which is the whole feedback loop of the step.
-Blocks move by dragging, resize from the bottom edge, and unschedule with **×**
-(which leaves the task on today: "at no particular hour" is a plan). Overlapping
+Blocks move by dragging, resize from either edge, unschedule with **×** (which
+leaves the task on today: "at no particular hour" is a plan), and **right-click**
+for the name, a description and the tag row.
+
+**A block an hour or longer shows its description** under the clock, growing a
+line at a time as the block gets taller and clamped with a `…` where it runs out
+— the browser puts the ellipsis, since only it knows how wide the block ended up
+once overlaps have split the column. An hour is the threshold because under one
+there is a single line spare, and one clipped line of prose is a smudge rather
+than information; shorter blocks keep it in the tooltip. HTML is stripped for
+the preview (a meeting invitation's description genuinely is HTML) — display
+only, so editing still works on the real text. Overlapping
 blocks are drawn side by side rather than hidden under each other.
 
 Everything is drawn **while you are still holding it**. A block you are moving
@@ -343,12 +353,61 @@ Google's docs say it supersedes `colorId`, and a labelled event usually carries
 no `colorId` at all — so reading `colorId` first draws a blue "Chill Vibes" event
 in the red of whatever calendar happens to hold it. The label's name rides along
 into the block's tooltip, since "Chill Vibes" says more about an hour than blue
-does. They are **read-only on
-purpose**: you cannot drag one, resize one, tick one off or delete one from
-here. They are the shape of the day you are planning *into*, and the only
-honest thing a planner can do with somebody else's ten o'clock is show it to you
-and stay out of the way. (Declined invitations and cancelled events are left
-out. An event that spills over a midnight is clipped to the day and says so.)
+does.
+
+**And they are yours to rearrange.** Drag one to move it, drag an edge to
+resize it, right-click it to rename, describe, retag or delete it — every one of
+those goes straight back to Google, to the event it came from. Three different
+permissions decide how far it goes, because Google draws the same three lines:
+you can **tag or delete** anything on a calendar you can write to (both act on
+your own copy, which is why Google offers them on a meeting you were merely
+invited to); you can **rename or describe** it if you are not merely a guest;
+and you can **move** it if it is also not clipped to this day — what you can see
+of an event that spills over a midnight is half of it, and a drag could only say
+where that half goes. A calendar you can only read is drawn and completely
+inert. (Declined invitations and cancelled events are left out entirely.)
+
+**Right-click anything on the grid** and you get its name, its description and
+the tag row — the coloured labels you keep your calendar in, exactly as Google's
+own menu offers them. The name and the description are the fields themselves
+rather than buttons that open one: click the name and type. Picking a tag
+recolours the block here and in Google at once, because they are the same fact.
+
+It works on all three kinds of block — your tasks, your typed commitments, and
+Google's own events — and each writes to whatever that thing already has: a
+task's title and **notes** (the same text the task detail panel shows), a
+commitment's, or a Google event's summary and description. Only **Delete** stays
+narrow: it is not offered on a task, because removing a task is a decision about
+work rather than about an hour, and a right-click is easy to mis-aim.
+
+Which tags a menu offers depends on where that block gets written:
+
+| Block | Tags it can take | Where the tag is kept |
+|---|---|---|
+| A Google event | the labels of **its own** calendar | on the event, in Google |
+| A task's block | the labels of **`Personal / Work`** (the calendar the day is pushed to) | `tasks.google_label_id`, and sent with the next *Send changes* |
+| A commitment | the same | the day's own events blob; it never goes to Google |
+
+Label ids are unique *within one calendar*, so a menu that mixed them would be
+offering ids the write is about to reject. Google's own unnamed palette swatches
+are filtered out — a tag is a word before it is a colour — so what you see is the
+list you actually named. If a menu comes up empty it says which of the two
+reasons it is: no tags on that calendar yet, or no Google.
+
+One description is shown but not editable: a meeting invitation's kilobyte of
+generated HTML is truncated on the way down (two hundred of those is a megabyte
+a page load), and letting you save an edit to a truncated copy would drop the
+rest of it. The menu says so, and the name above it is still yours to change.
+
+Tagging a task's block needs one column that older databases do not have:
+
+```sql
+ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS google_label_id text;
+```
+
+`supabase/migrations/002_timeline_tags.sql` is that one line with its reasoning,
+re-running `supabase/schema.sql` does the same thing, and `npm run db:check`
+tells you whether you need to.
 
 They are ordinary blocks in every other respect, which is the useful part: a
 task dropped on top of your standup is drawn beside it rather than underneath,
@@ -370,14 +429,26 @@ Writing somewhere of its own is what keeps the whole thing reversible: your plan
 is one checkbox away from hidden and one deletion away from gone, and it is
 never tangled up with the meetings other people booked.
 
-Sent blocks are **Tomato** — Google's red — so a glance at your phone tells your
+Sent blocks are **Tomato** — Google's red — unless you have tagged one, in which
+case it goes in that tag's colour. Either way a glance at your phone tells your
 own hours apart from everything else at a distance, and they carry **no
 reminders**: six popups for the afternoon you arranged yourself is a plan that
 interrupts you all day.
 
+**A must-do block arrives with a star on it.** A task on the day is either
+something you are committing to finish (the filled star on its row) or something
+you will get to if the day allows — and on your phone at eleven that distinction
+is otherwise nothing at all, six identical boxes with no way to tell the two you
+promised yourself from the four you did not. So the title carries it: `Essay ⭐`.
+The task's own title is untouched; the star is appended to the copy that goes to
+Google, and appended rather than prefixed because a calendar truncates a block
+from the right, and the star is the right thing to lose when there is no room
+for it. Unstar the task and re-send, and it comes off again.
+
 **Sending again is a reconciliation, not an upload.** Move a block and re-send:
-the same Google event moves. Unschedule one, or take the task off the day, and
-its event is removed. Change nothing and re-send: nothing is written at all.
+the same Google event moves. Retag or star one and re-send: the same event is
+recoloured or renamed. Unschedule one, or take the task off the day, and its
+event is removed. Change nothing and re-send: nothing is written at all.
 Change `GOOGLE_CALENDAR_NAME` and re-send, and a day already in Google *moves*
 to the new calendar rather than being left behind in the old one — the finished
 day notices by itself and offers *Send changes*.
