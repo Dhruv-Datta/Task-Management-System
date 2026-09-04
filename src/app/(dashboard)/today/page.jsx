@@ -1084,12 +1084,16 @@ export default function TodayPage() {
       const tag = e.target?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
-      // `c` still works for anyone with the Linear reflex.
-      if (e.key === 't' || e.key === 'c') { e.preventDefault(); openComposer(); }
+      // Not behind an open dialog: a box you have clicked no field in leaves
+      // focus on <body>, where a bare letter would open a second one.
+      if (composer || openTaskId) return;
+      // `n` is the shortcut; `t` and `c` still work for anyone who learned
+      // them here or has the Linear reflex.
+      if (e.key === 'n' || e.key === 't' || e.key === 'c') { e.preventDefault(); openComposer(); }
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [openComposer]);
+  }, [openComposer, composer, openTaskId]);
 
   // ─── Copy ──────────────────────────────────────────────────────────────────
 

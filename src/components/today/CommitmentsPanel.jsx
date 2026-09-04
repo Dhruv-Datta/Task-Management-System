@@ -80,7 +80,7 @@ export default function CommitmentsPanel({
       <PanelHead
         title="Today plan"
         count={day.open.length}
-        action={<AddButton onClick={onNew} title="Write a new task, planned for today" always />}
+        action={<AddButton onClick={onNew} title="Write a new task, planned for today (N)" always />}
       />
 
       <div className="px-2 pb-4">

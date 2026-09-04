@@ -12,12 +12,17 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, CalendarDays, ChevronDown, Eye, EyeOff, Flag, Star, Timer } from 'lucide-react';
+import {
+  Check, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Eye, EyeOff, Flag, Star, Timer,
+} from 'lucide-react';
 import {
   DAILY_PRIORITIES, ESTIMATES, PRIORITIES, STATUSES, dateMeta, estimateMeta,
   normalizeDailyPriority, priorityMarks, priorityMeta, statusMeta,
 } from '@/lib/tasks';
-import { addDaysISO, todayISO } from '@/lib/dates';
+import {
+  MONTH_FULL_NAMES, WEEKDAY_NAMES, addDaysISO, addMonthsISO, formatDateLong, fromISODate,
+  monthGridISO, todayISO,
+} from '@/lib/dates';
 
 /*
   ─── Where the task overlays sit ─────────────────────────────────────────────
@@ -47,7 +52,7 @@ export const OVERLAY_Z = {
  * overflow/transform ancestor (cards and kanban columns both clip). Closes on
  * outside click or Escape.
  */
-export function MenuPortal({ anchorRef, onClose, align = 'left', width = 200, maxHeight = 320, children }) {
+export function MenuPortal({ anchorRef, onClose, align = 'left', width = 200, maxHeight = 320, fit = 240, rigid = false, children }) {
   const ref = useRef(null);
   const [pos, setPos] = useState(null);
 
@@ -59,11 +64,38 @@ export function MenuPortal({ anchorRef, onClose, align = 'left', width = 200, ma
       const left = align === 'right'
         ? Math.max(8, rect.right - width)
         : Math.min(rect.left, window.innerWidth - width - 8);
+      const below = window.innerHeight - rect.bottom;
+
+      /*
+        A RIGID menu is one drawing a fixed object rather than a list of rows —
+        the calendar. A list can give up its bottom half to a scrollbar and
+        still be a list; half a month grid is not a month grid, and hunting for
+        the 28th by scrolling a box the size of a postage stamp is worse than
+        the native picker this replaced. So it is never shrunk to fit the gap
+        under its trigger: it takes its full height (`fit`), and only a window
+        shorter than the menu itself can make one scroll.
+
+        It is also CENTRED ON ITS TRIGGER rather than hung below it. A 430px
+        panel dropped under a row halfway down the screen ends up pressed
+        against the bottom edge, which is both an awkward place to read a month
+        and a long way from where you were looking. Straddling the row keeps it
+        near the middle of the screen, and means unfolding the grid grows the
+        panel evenly in both directions instead of lurching downwards. It
+        covers the trigger doing so, which is fine: that is a control you have
+        just used, and the menu's own footer says what it currently reads.
+      */
+      if (rigid) {
+        const height = Math.min(fit, window.innerHeight - 16);
+        const centred = rect.top + rect.height / 2 - height / 2;
+        const top = Math.min(Math.max(8, centred), window.innerHeight - 8 - height);
+        setPos({ top, bottom: null, left, room: window.innerHeight - 16 });
+        return;
+      }
+
       // Flip above the anchor when there isn't room below, and report how much
       // room the chosen side actually has: a menu that is allowed to be tall
       // should use the screen it has before it starts scrolling.
-      const below = window.innerHeight - rect.bottom;
-      const flip = below < 240 && rect.top > below;
+      const flip = below < fit && rect.top > below;
       setPos({
         top: flip ? null : rect.bottom + 6,
         bottom: flip ? window.innerHeight - rect.top + 6 : null,
@@ -78,7 +110,7 @@ export function MenuPortal({ anchorRef, onClose, align = 'left', width = 200, ma
       window.removeEventListener('resize', place);
       window.removeEventListener('scroll', place, true);
     };
-  }, [anchorRef, align, width]);
+  }, [anchorRef, align, width, fit, rigid]);
 
   /*
     Both listeners are CAPTURE phase, on purpose. A menu can be opened from
@@ -137,13 +169,23 @@ export function MenuPortal({ anchorRef, onClose, align = 'left', width = 200, ma
   padding and hover fill would otherwise draw a second, differently-shaped
   surface behind the one you can see.
 */
-function triggerClass(hasChildren, chrome) {
+function triggerClass(hasChildren, chrome, full = false) {
   // `min-w-0` all the way down: a trigger wrapping a chip that truncates (the
   // person pill) only shrinks if every flex box between the card and the text
   // agrees to. Without it the pill keeps its full width and the name spills out
   // over whatever sits beside it.
-  return hasChildren ? 'inline-flex items-center min-w-0 max-w-full' : chrome;
+  //
+  // `full` is the rail's shape: there the trigger is a row you can click
+  // anywhere along, not a word you have to aim at, so it takes the whole width
+  // it is given instead of shrinking to its text.
+  return hasChildren
+    ? `${full ? 'flex w-full' : 'inline-flex'} items-center min-w-0 max-w-full`
+    : chrome;
 }
+
+// The anchor a full-width trigger hangs off has to stretch too, or the button
+// inside it has nothing to fill.
+const anchorClass = full => (full ? 'flex min-w-0' : 'inline-flex');
 
 function MenuItem({ active, onClick, children, className = '' }) {
   return (
@@ -328,18 +370,18 @@ export function PriorityIcon({ priority, size = 12 }) {
   );
 }
 
-export function PriorityPicker({ priority, onSelect, showLabel = false, align = 'left', children }) {
+export function PriorityPicker({ priority, onSelect, showLabel = false, align = 'left', full = false, children }) {
   const anchorRef = useRef(null);
   const [open, setOpen] = useState(false);
   const meta = priorityMeta(priority);
   return (
     <>
-      <span ref={anchorRef} className="inline-flex">
+      <span ref={anchorRef} className={anchorClass(full)}>
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
           title={`Priority: ${meta.label}`}
-          className={triggerClass(!!children, 'inline-flex items-center gap-1.5 rounded-md px-1 py-0.5 hover:bg-gray-100 transition-colors')}
+          className={triggerClass(!!children, 'inline-flex items-center gap-1.5 rounded-md px-1 py-0.5 hover:bg-gray-100 transition-colors', full)}
         >
           {children ?? (
             <>
@@ -421,19 +463,28 @@ export function DateChip({ iso, done = false, dense = false, className = '' }) {
   exists to catch. So a hard task is pulled into Attention a week before it is
   owed, while there is still time for it to be difficult.
 
-  It draws as a FLAG and never as a word. It sits beside the priority marks,
-  because it is read the way they are — a glyph you take in while scanning a
-  column, not a label you stop and read — and because the two together are the
-  whole of "how much is this going to cost me". A pill saying "Hard" on every
-  other row is three times the width for the same fact, and it turns a scan into
-  a sentence.
+  It draws as a FLAG and never as a word — in the dialogs too, where it is one
+  of the two marks in the header rather than a labelled row in the rail. It sits
+  beside the priority marks, because it is read the way they are — a glyph you
+  take in while scanning a column, not a label you stop and read — and because
+  the two together are the whole of "how much is this going to cost me". A pill
+  saying "Hard" on every other row is three times the width for the same fact,
+  and it turns a scan into a sentence.
 
-  Filled and amber when it is set, a hollow outline when it is not: the shape is
-  constant so the column never reflows, and only the weight changes.
+  `box` is the padding and hit area, because the same flag is a 11px mark tucked
+  against a row's priority icon in one place and a 16px header button with a
+  hover surface of its own in another.
+
+  Red, and always drawn: a hollow outline when it is not set, the same flag
+  filled solid when it is. The shape is constant so the column never reflows,
+  and only the weight changes. Red because this is the mark that says a task
+  will fight you — it is a warning, not a highlight, and it should not read as
+  a quieter version of the amber star next door, which means something else
+  entirely.
 */
 
 /** Read-only: the mark a hard task carries. Nothing at all when it is not. */
-export function HardFlag({ hard, size = 12, className = '' }) {
+export function HardFlag({ hard, size = 14, className = '' }) {
   if (!hard) return null;
   return (
     <Flag
@@ -441,13 +492,13 @@ export function HardFlag({ hard, size = 12, className = '' }) {
       strokeWidth={2.5}
       fill="currentColor"
       aria-label="Hard"
-      className={`flex-shrink-0 text-amber-500 ${className}`}
+      className={`flex-shrink-0 text-red-500 ${className}`}
     />
   );
 }
 
 /** The same mark, as the switch that sets it. Quiet until it is on, or hovered. */
-export function HardToggle({ value, onToggle, size = 12, showLabel = false, className = '' }) {
+export function HardToggle({ value, onToggle, size = 16, box = 'rounded-md p-1 -m-1', className = '' }) {
   return (
     <button
       type="button"
@@ -455,14 +506,11 @@ export function HardToggle({ value, onToggle, size = 12, showLabel = false, clas
       title={value ? 'Hard — click to unflag' : 'Flag as hard: it needs a run-up'}
       aria-pressed={!!value}
       aria-label="Hard"
-      className={`inline-flex items-center gap-1 rounded-md p-1 -m-1 transition-colors active:scale-90 ${
-        value ? 'text-amber-500 hover:text-amber-600' : 'text-gray-300 hover:text-amber-500'
+      className={`inline-flex items-center transition-colors active:scale-90 ${box} ${
+        value ? 'text-red-500 hover:text-red-600' : 'text-red-300 hover:text-red-500'
       } ${className}`}
     >
       <Flag size={size} strokeWidth={2.5} fill={value ? 'currentColor' : 'none'} className="flex-shrink-0" />
-      {showLabel && (
-        <span className="text-[12px] font-semibold text-gray-600">{value ? 'Hard' : 'Not hard'}</span>
-      )}
     </button>
   );
 }
@@ -532,25 +580,189 @@ export function DailyPriorityToggle({
   );
 }
 
-/** Quick options + a native date field: when a task is owed. */
-export function DatePicker({ value, onSelect, label = 'Due date', align = 'right', children }) {
+/*
+  ─── The calendar ────────────────────────────────────────────────────────────
+
+  A month you can see, drawn here rather than handed to <input type="date">.
+
+  The native field was one line of chrome that opens a calendar the browser
+  draws: a different size, shape and colour in every browser, no idea which day
+  is today, no idea which day you already picked, and on Firefox and Safari it
+  is not the same control twice. Picking a due date is the one thing this picker
+  exists for, so it should be the thing you land on — not a text field you have
+  to click a second time to get a calendar out of.
+
+  What it draws that the native one cannot: today, marked; the day currently
+  chosen, filled; the days already behind you, faded, so an accidental "last
+  Tuesday" is visible before you commit to it rather than after; and the two
+  answers that need no counting — today and tomorrow — as buttons above it, so
+  the commonest due dates are never a hunt across a grid. Anything further out
+  IS a date you have to look at, so it comes off the calendar.
+
+  Six rows always, even when the month fits in five: a grid that changes height
+  moves the footer under your cursor between one month and the next.
+*/
+
+// One day. Selected wins over today wins over the month it belongs to, because
+// that's the order you read them in: what you picked, then where you are now.
+function DayCell({ iso, month, value, today, focused, onPick }) {
+  const d = fromISODate(iso);
+  const inMonth = iso.slice(0, 7) === month.slice(0, 7);
+  const isToday = iso === today;
+  const selected = iso === value;
+  const past = iso < today;
+
+  return (
+    <button
+      type="button"
+      data-day={iso}
+      tabIndex={focused ? 0 : -1}
+      onClick={() => onPick(iso)}
+      aria-label={formatDateLong(iso, today)}
+      aria-current={isToday ? 'date' : undefined}
+      aria-pressed={selected}
+      className={`h-8 rounded-lg text-[12.5px] leading-none transition-colors outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1 ${
+        selected
+          ? 'bg-gray-900 text-white font-bold hover:bg-gray-800'
+          : isToday
+            ? 'bg-emerald-50 text-emerald-700 font-bold hover:bg-emerald-100'
+            : inMonth
+              ? `${past ? 'text-gray-400' : 'text-gray-700'} font-medium hover:bg-gray-100`
+              : 'text-gray-300 font-medium hover:bg-gray-50'
+      }`}
+    >
+      {d.getDate()}
+    </button>
+  );
+}
+
+function MonthGrid({ value, today, onPick }) {
+  // Open on the month you are already in — the one you picked, or this one.
+  const [month, setMonth] = useState(value || today);
+  const [cursor, setCursor] = useState(value || today);
+  const gridRef = useRef(null);
+  // Only the ARROW KEYS move focus. Setting focus after a click too would drag
+  // the page to the menu on every pick, and the menu is closing anyway.
+  const keyboard = useRef(false);
+
+  useEffect(() => {
+    if (!keyboard.current) return;
+    keyboard.current = false;
+    gridRef.current?.querySelector(`[data-day="${cursor}"]`)?.focus();
+  }, [cursor]);
+
+  const go = (iso) => {
+    keyboard.current = true;
+    setCursor(iso);
+    if (iso.slice(0, 7) !== month.slice(0, 7)) setMonth(iso);
+  };
+
+  const step = (months) => {
+    const next = addMonthsISO(month, months);
+    setMonth(next);
+    setCursor(next);
+  };
+
+  const onKeyDown = (e) => {
+    const by = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[e.key];
+    if (by) { e.preventDefault(); go(addDaysISO(cursor, by)); return; }
+    if (e.key === 'PageUp' || e.key === 'PageDown') {
+      e.preventDefault();
+      go(addMonthsISO(cursor, e.key === 'PageUp' ? -1 : 1));
+    }
+  };
+
+  const anchor = fromISODate(month);
+
+  return (
+    <div className="px-2.5 pt-1.5 pb-2">
+      <div className="flex items-center justify-between pb-1">
+        <button
+          type="button"
+          onClick={() => step(-1)}
+          aria-label="Previous month"
+          className="p-1 rounded-md text-gray-400 hover:text-gray-800 hover:bg-gray-100 transition-colors"
+        >
+          <ChevronLeft size={15} strokeWidth={2.5} />
+        </button>
+        {/* The heading is also the way back: on a calendar you have paged three
+            months into, "this month" is otherwise three clicks away. */}
+        <button
+          type="button"
+          onClick={() => { setMonth(today); setCursor(today); }}
+          title="Jump to this month"
+          className="px-2 py-0.5 rounded-md text-[12.5px] font-bold text-gray-800 hover:bg-gray-100 transition-colors"
+        >
+          {MONTH_FULL_NAMES[anchor.getMonth()]} {anchor.getFullYear()}
+        </button>
+        <button
+          type="button"
+          onClick={() => step(1)}
+          aria-label="Next month"
+          className="p-1 rounded-md text-gray-400 hover:text-gray-800 hover:bg-gray-100 transition-colors"
+        >
+          <ChevronRight size={15} strokeWidth={2.5} />
+        </button>
+      </div>
+
+      <div className="grid grid-cols-7 gap-[2px] pb-1">
+        {WEEKDAY_NAMES.map(w => (
+          <div key={w} className="text-center text-[9.5px] font-bold uppercase tracking-wide text-gray-400">
+            {w.slice(0, 2)}
+          </div>
+        ))}
+      </div>
+
+      {/* One tab stop, not forty-two: the grid is entered once and walked with
+          the arrows, the way a grid of dates is meant to be read. */}
+      <div ref={gridRef} onKeyDown={onKeyDown} aria-label="Calendar" className="grid grid-cols-7 gap-[2px]">
+        {monthGridISO(month).map(iso => (
+          <DayCell
+            key={iso}
+            iso={iso}
+            month={month}
+            value={value}
+            today={today}
+            focused={iso === cursor}
+            onPick={onPick}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Quick answers, then a month grid on request: when a task is owed. */
+export function DatePicker({ value, onSelect, label = 'Due date', align = 'right', full = false, children }) {
   const anchorRef = useRef(null);
   const [open, setOpen] = useState(false);
   const today = todayISO();
   const quick = [
     { label: 'Today', iso: today },
     { label: 'Tomorrow', iso: addDaysISO(today, 1) },
-    { label: 'In 3 days', iso: addDaysISO(today, 3) },
-    { label: 'Next week', iso: addDaysISO(today, 7) },
   ];
+  /*
+    The grid is FOLDED AWAY until asked for. Most due dates are today or
+    tomorrow, and making you look at a whole month to say "tomorrow" is the same
+    mistake as making you count days to say "the 23rd" — just in the other
+    direction. So the menu opens as the two short answers and one button, and
+    the month appears under that button when the answer is a real date.
+
+    Already on a date, though, and the month opens with it: you came to move a
+    date you can see, and folding it away would hide the very thing you are
+    moving.
+  */
+  const [showGrid, setShowGrid] = useState(!!value);
+  const pick = (iso) => { onSelect(iso); setOpen(false); };
+  const meta = dateMeta(value, today);
 
   return (
     <>
-      <span ref={anchorRef} className="inline-flex">
+      <span ref={anchorRef} className={anchorClass(full)}>
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
-          className={triggerClass(!!children, 'inline-flex items-center rounded-md hover:bg-gray-100 transition-colors')}
+          className={triggerClass(!!children, 'inline-flex items-center rounded-md hover:bg-gray-100 transition-colors', full)}
           title={label}
         >
           {children ?? (
@@ -563,31 +775,90 @@ export function DatePicker({ value, onSelect, label = 'Due date', align = 'right
         </button>
       </span>
       {open && (
-        <MenuPortal anchorRef={anchorRef} onClose={() => setOpen(false)} align={align} width={210}>
-          <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-400">{label}</div>
-          {quick.map(q => (
-            <MenuItem key={q.label} active={value === q.iso} onClick={() => { onSelect(q.iso); setOpen(false); }}>
-              <CalendarDays size={12} className="text-gray-400" />
-              {q.label}
-            </MenuItem>
-          ))}
-          <div className="px-2.5 py-2 border-t border-gray-100 mt-1">
-            <input
-              type="date"
-              value={value || ''}
-              onChange={e => { onSelect(e.target.value || null); setOpen(false); }}
-              className="w-full text-sm px-2 py-1 border border-gray-200 rounded-lg outline-none focus:ring-1 focus:ring-emerald-500"
-            />
+        // Rigid: a month grid is one object, so it is placed whole rather than
+        // trimmed to the room under whatever row you opened it from. `fit`
+        // follows the fold, because the menu is two very different heights.
+        <MenuPortal
+          anchorRef={anchorRef}
+          onClose={() => setOpen(false)}
+          align={align}
+          width={276}
+          maxHeight={520}
+          fit={showGrid ? 430 : 176}
+          rigid
+        >
+          <div className="px-3 pt-2 pb-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-400">{label}</div>
+
+          {/* Tinted rather than outlined: these two are the answer most of the
+              time, so they should read as the offer and not as two more empty
+              boxes. Emerald is the calendar's colour for "now" — it marks today
+              in the grid below. Picked, a row goes the same solid dark as the
+              selected day, so "chosen" looks the same wherever you chose it. */}
+          <div className="flex flex-col gap-1 px-2.5 pb-2">
+            {quick.map(q => {
+              const d = fromISODate(q.iso);
+              const active = value === q.iso;
+              return (
+                <button
+                  key={q.label}
+                  type="button"
+                  onClick={() => pick(q.iso)}
+                  className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left transition-colors ${
+                    active
+                      ? 'border-gray-900 bg-gray-900 text-white'
+                      : 'border-emerald-100 bg-emerald-50 text-emerald-800 hover:border-emerald-200 hover:bg-emerald-100'
+                  }`}
+                >
+                  <CalendarDays size={13} strokeWidth={2.5} className={active ? 'text-white/70' : 'text-emerald-500'} />
+                  <span className="text-[12.5px] font-semibold leading-none">{q.label}</span>
+                  <span className={`ml-auto text-[11px] leading-none ${active ? 'text-white/60' : 'text-emerald-600/80'}`}>
+                    {WEEKDAY_NAMES[d.getDay()]} {d.getDate()}
+                  </span>
+                </button>
+              );
+            })}
           </div>
-          {value && (
-            <button
-              type="button"
-              onClick={() => { onSelect(null); setOpen(false); }}
-              className="w-full text-left px-3 py-1.5 text-xs text-red-500 hover:bg-red-50 border-t border-gray-100 transition-colors"
-            >
-              Clear
-            </button>
+
+          {/* The third answer: a date you have to look at. */}
+          <button
+            type="button"
+            onClick={() => setShowGrid(g => !g)}
+            aria-expanded={showGrid}
+            className="flex w-full items-center gap-2 border-t border-gray-100 px-3 py-2 text-[12.5px] font-semibold text-gray-600 hover:bg-gray-50 transition-colors"
+          >
+            <CalendarDays size={14} className="text-gray-400" />
+            Pick a date
+            <ChevronDown size={14} className={`ml-auto text-gray-400 transition-transform ${showGrid ? 'rotate-180' : ''}`} />
+          </button>
+
+          {showGrid && (
+            <div className="border-t border-gray-100">
+              <MonthGrid value={value} today={today} onPick={pick} />
+            </div>
           )}
+
+          {/* What you have actually chosen, spelt out — the grid says which
+              square is filled, not which day that is — and the one way back to
+              no date at all. */}
+          <div className="flex items-center justify-between gap-2 border-t border-gray-100 px-3 py-1.5">
+            {value ? (
+              <span className="min-w-0 truncate text-[11.5px] font-semibold text-gray-700">
+                {formatDateLong(value, today)}
+                {meta && <span className={`ml-1.5 font-medium ${meta.tone === 'late' ? 'text-red-500' : 'text-gray-400'}`}>{meta.label}</span>}
+              </span>
+            ) : (
+              <span className="text-[11.5px] text-gray-400">No {label.toLowerCase()}</span>
+            )}
+            {value && (
+              <button
+                type="button"
+                onClick={() => pick(null)}
+                className="flex-shrink-0 rounded-md px-1.5 py-0.5 text-[11.5px] font-semibold text-red-500 hover:bg-red-50 hover:text-red-600 transition-colors"
+              >
+                Clear
+              </button>
+            )}
+          </div>
         </MenuPortal>
       )}
     </>
@@ -623,18 +894,18 @@ export function EstimateChip({ minutes, dense = false, className = '' }) {
   );
 }
 
-export function EstimatePicker({ value, onSelect, align = 'right', dense = false, children }) {
+export function EstimatePicker({ value, onSelect, align = 'right', dense = false, full = false, children }) {
   const anchorRef = useRef(null);
   const [open, setOpen] = useState(false);
   const meta = estimateMeta(value);
 
   return (
     <>
-      <span ref={anchorRef} className="inline-flex">
+      <span ref={anchorRef} className={anchorClass(full)}>
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
-          className={triggerClass(!!children, 'inline-flex items-center rounded-md hover:opacity-80 transition-opacity')}
+          className={triggerClass(!!children, 'inline-flex items-center rounded-md hover:opacity-80 transition-opacity', full)}
           title={meta ? `Estimated ${meta.label}` : 'Estimate how long this takes'}
         >
           {children ?? (
@@ -697,18 +968,23 @@ export function ListPicker({ lists = [], value, onSelect, align = 'left' }) {
 
   return (
     <>
-      <span ref={anchorRef} className="inline-flex min-w-0 max-w-full">
+      <span ref={anchorRef} className="flex min-w-0">
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
           title="List"
-          className="inline-flex items-center min-w-0 max-w-full"
+          className="flex w-full items-center min-w-0"
         >
-          <span className="inline-flex items-center gap-2 text-sm px-2 py-1 -ml-2 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors min-w-0">
-            <span
-              className="w-2 h-2 rounded-full flex-shrink-0"
-              style={{ backgroundColor: current?.color || '#94a3b8' }}
-            />
+          {/* The rail's row, drawn by hand: this is the one picker that lives
+              nowhere else, so it wears DialogParts' Value rather than taking
+              one as a child. Keep the two in step. */}
+          <span className="flex w-full items-center gap-2.5 min-w-0 px-2 py-[7px] rounded-lg border border-transparent text-[15px] leading-6 font-medium text-gray-700 hover:bg-white hover:border-gray-200/80 transition-colors">
+            <span className="w-[18px] flex items-center justify-center flex-shrink-0">
+              <span
+                className="w-2.5 h-2.5 rounded-full"
+                style={{ backgroundColor: current?.color || '#94a3b8' }}
+              />
+            </span>
             <span className="truncate">{current?.name || 'No list'}</span>
           </span>
         </button>

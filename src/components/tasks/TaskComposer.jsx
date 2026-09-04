@@ -37,7 +37,7 @@ import {
 } from './TaskPickers';
 import {
   DialogShell, Field, MainColumn, NotesInput, Rail, SectionTitle, SubtaskChecklist, SubtaskCount,
-  TitleInput, Value,
+  TitleInput, Value, ValueIcon,
 } from './DialogParts';
 
 export default function TaskComposer({ defaults = {}, lists = null, planning = false, onCreate, onClose }) {
@@ -180,26 +180,30 @@ export default function TaskComposer({ defaults = {}, lists = null, planning = f
           </Field>
         )}
 
-        <Field label="Priority">
-          <PriorityPicker priority={priority} onSelect={setPriority} align="left">
+        {/* Hard sits on the priority line, not up in the header. It is read
+            the way the priority marks are — how much this is going to cost you
+            — and beside the close button it was a flag you could hit while
+            reaching for the X. Still a mark rather than a row: a field spelling
+            out "Not hard" spends a third of the rail saying nothing. */}
+        <Field
+          label="Priority"
+          trailing={<HardToggle value={hard} onToggle={setHard} size={17} box="rounded-md p-1 -my-1 hover:bg-red-50" />}
+        >
+          <PriorityPicker priority={priority} onSelect={setPriority} align="left" full>
             <Value>
-              <PriorityIcon priority={priority} size={13} />
+              <ValueIcon><PriorityIcon priority={priority} size={14} /></ValueIcon>
               {priorityMeta(priority).label}
             </Value>
           </PriorityPicker>
         </Field>
 
         <Field label="Due">
-          <DatePicker value={dueDate} onSelect={setDueDate} label="Due date" align="left">
+          <DatePicker value={dueDate} onSelect={setDueDate} label="Due date" align="left" full>
             <Value empty={!dueDate}>
-              <CalendarDays size={14} className="text-gray-400" />
-              {dueDate ? formatDateLong(dueDate) : 'No due date'}
+              <ValueIcon><CalendarDays size={15} /></ValueIcon>
+              <span className="truncate">{dueDate ? formatDateLong(dueDate) : 'No due date'}</span>
             </Value>
           </DatePicker>
-        </Field>
-
-        <Field label="Difficulty">
-          <HardToggle value={hard} onToggle={setHard} size={14} showLabel />
         </Field>
 
         {/* Planning fields, only where planning is the job: see the same gate
@@ -209,26 +213,26 @@ export default function TaskComposer({ defaults = {}, lists = null, planning = f
         {planning && (
           <div className="mt-3 pt-3 border-t border-gray-200/70">
             <Field label="Estimate">
-              <EstimatePicker value={estimate} onSelect={setEstimate} align="left">
+              <EstimatePicker value={estimate} onSelect={setEstimate} align="left" full>
                 <Value empty={!estimate}>
-                  <Timer size={14} className="text-gray-400" />
-                  {estimateMeta(estimate)?.label || 'No estimate'}
+                  <ValueIcon><Timer size={15} /></ValueIcon>
+                  <span className="truncate">{estimateMeta(estimate)?.label || 'No estimate'}</span>
                 </Value>
               </EstimatePicker>
             </Field>
 
             <Field label="Planned day">
-              <DatePicker value={plannedDate} onSelect={setPlannedDate} label="Planned day" align="left">
+              <DatePicker value={plannedDate} onSelect={setPlannedDate} label="Planned day" align="left" full>
                 <Value empty={!plannedDate}>
-                  <CalendarCheck size={14} className="text-gray-400" />
-                  {plannedDate ? formatDateLong(plannedDate) : 'Not planned'}
+                  <ValueIcon><CalendarCheck size={15} /></ValueIcon>
+                  <span className="truncate">{plannedDate ? formatDateLong(plannedDate) : 'Not planned'}</span>
                 </Value>
               </DatePicker>
             </Field>
 
             {plannedDate && (
               <Field label="That day">
-                <DailyPriorityToggle value={dailyPriority} onChange={setDailyPriority} />
+                <DailyPriorityToggle value={dailyPriority} onChange={setDailyPriority} className="self-start" />
               </Field>
             )}
           </div>

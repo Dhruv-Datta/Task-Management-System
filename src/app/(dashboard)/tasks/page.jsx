@@ -497,20 +497,26 @@ export default function TasksPage() {
     setComposer({ ...defaultsForGroup(null), due_date: dueDate });
   }, [defaultsForGroup]);
 
-  // ─── Keyboard: t = new task, / = search ────────────────────────────────────
+  // ─── Keyboard: n = new task, / = search ────────────────────────────────────
 
   useEffect(() => {
     const onKey = (e) => {
       const tag = e.target?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
-      // `c` still works for anyone with the Linear reflex.
-      if (e.key === 't' || e.key === 'c') { e.preventDefault(); openComposer(); }
+      // A bare letter must not fire behind an open dialog. The tag check above
+      // covers the ordinary case (your cursor is in the title), but a dialog
+      // you have clicked no field in leaves focus on <body>, and `n` there
+      // would stack a second box on top of the one you are already in.
+      if (composer || openTaskId) return;
+      // `n` is the shortcut; `t` and `c` still work for anyone who learned
+      // them here or has the Linear reflex.
+      if (e.key === 'n' || e.key === 't' || e.key === 'c') { e.preventDefault(); openComposer(); }
       if (e.key === '/') { e.preventDefault(); searchRef.current?.focus(); }
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [openComposer]);
+  }, [openComposer, composer, openTaskId]);
 
   const toggleQuick = (key) => setQuickFilter(prev => (prev === key ? null : key));
 
@@ -578,7 +584,7 @@ export default function TasksPage() {
         <div className="flex items-center gap-2">
           <button
             onClick={() => openComposer()}
-            title="New task (T)"
+            title="New task (N)"
             className="flex items-center gap-1.5 text-sm font-semibold px-3.5 py-2 rounded-xl bg-gray-900 text-white hover:bg-gray-700 transition-colors"
           >
             <Plus size={15} />
@@ -704,7 +710,7 @@ export default function TasksPage() {
           onAdd={openComposer}
           showCompleted={showCompleted}
           onToggleCompleted={hasCompletedSection ? () => setShowCompleted(s => !s) : null}
-          emptyHint="Nothing in any list yet. Press T to write the first one."
+          emptyHint="Nothing in any list yet. Press N to write the first one."
         />
       )}
 

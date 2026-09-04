@@ -57,35 +57,75 @@ export function MainColumn({ children }) {
 
 /** The right column: what the task IS, glanced at rather than read. */
 export function Rail({ children }) {
+  /* The padding is deliberately smaller than it looks: each value below draws a
+     full-width row with 8px of its own, so the rail gives 12 and the text lands
+     20px in. Putting all of it on the rail instead would make every hover
+     surface start where the words do, which reads as a highlight rather than as
+     a control. */
   return (
-    <div className="w-full md:w-[248px] flex-shrink-0 overflow-y-auto border-t md:border-t-0 md:border-l border-gray-100 bg-gray-50/60 px-4 py-4">
+    <div className="w-full md:w-[248px] flex-shrink-0 overflow-y-auto border-t md:border-t-0 md:border-l border-gray-100 bg-gray-50/60 px-3 py-4">
       {children}
     </div>
   );
 }
 
-// One property in the rail: its name, then its value under it. The rail is
-// narrow, so the label sits above rather than stealing half the width.
-export function Field({ label, children }) {
+/*
+  One property in the rail: its name, then its value under it. The rail is
+  narrow, so the label sits above rather than stealing half the width.
+
+  The value stacks and stretches rather than sitting in a wrapping row: a
+  property is one row you can click anywhere along, and anything that comes with
+  it (a due date's chip) goes under it rather than trailing off the end.
+*/
+export function Field({ label, trailing = null, children }) {
   return (
-    <div className="py-1.5">
-      <span className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-0.5">
+    <div className="py-1">
+      {/* `trailing` is for a mark that belongs to this field but has no row of
+          its own — the hard flag beside PRIORITY. It rides the label line, out
+          of the way of the value underneath, which is the part you read. */}
+      <span className="flex items-center gap-2 px-2 mb-[3px] text-[10px] font-bold uppercase tracking-wider text-gray-400">
         {label}
+        {trailing && <span className="ml-auto flex items-center">{trailing}</span>}
       </span>
-      <div className="flex items-center gap-1.5 flex-wrap">{children}</div>
+      <div className="flex flex-col items-stretch gap-1">{children}</div>
     </div>
   );
 }
 
-// The shared look of every editable value: no border, a hover surface, and text
-// that greys out when there's nothing set yet.
+/*
+  The shared look of every editable value: a full-width row, no chrome until you
+  point at it, and text that greys out when there's nothing set yet.
+
+  It reads at 15px, a size up from the rest of the dialog's small print, because
+  these three or four words ARE what the rail is for — the label above is the
+  quiet half of the pair. Hovering lifts the row onto white with a hairline
+  rather than tinting it grey: the rail is already grey, so a grey hover is a
+  surface you can barely see move.
+*/
 export function Value({ empty = false, children }) {
   return (
     <span
-      className={`inline-flex items-center gap-2 text-sm px-2 py-1 -ml-2 rounded-lg hover:bg-gray-100 transition-colors ${
-        empty ? 'text-gray-400' : 'text-gray-700'
+      className={`flex w-full items-center gap-2.5 min-w-0 px-2 py-[7px] rounded-lg border border-transparent text-[15px] leading-6 hover:bg-white hover:border-gray-200/80 transition-colors ${
+        empty ? 'text-gray-400' : 'text-gray-700 font-medium'
       }`}
     >
+      {children}
+    </span>
+  );
+}
+
+/*
+  The icon column a value starts with.
+
+  Fixed width, and every glyph is centred in it, so a priority mark, a calendar
+  and a list dot all put their text on the same vertical line. Letting each icon
+  carry its own width is what made the rail look ragged: an exclamation mark and
+  a calendar are nowhere near the same size, so "Medium" and "No due date"
+  started in two different places.
+*/
+export function ValueIcon({ children }) {
+  return (
+    <span className="w-[18px] flex items-center justify-center flex-shrink-0 text-gray-400">
       {children}
     </span>
   );

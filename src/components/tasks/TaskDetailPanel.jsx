@@ -16,7 +16,8 @@
   invisible control that only draws itself when you point at it, so what you read
   is the task (a name, an owner, two dates) instead of a stack of outlined
   pills. The status lives in the header, where it is both the label and the
-  control, rather than being stated twice.
+  control, rather than being stated twice, and the hard flag sits beside it for
+  the same reason: a yes/no with no value to read is a mark, not a labelled row.
 
   A task's list is not editable here: you are always inside one list, so moving
   work between lists is not something this dialog does. The overview is the one
@@ -42,7 +43,7 @@ import {
 } from './TaskPickers';
 import {
   DialogShell, Field, MainColumn, NotesInput, Rail, SectionTitle, SubtaskChecklist, SubtaskCount,
-  TitleInput, Value,
+  TitleInput, Value, ValueIcon,
 } from './DialogParts';
 
 export default function TaskDetailPanel({ task, list = null, planning = false, onPatch, onDelete, onClose }) {
@@ -242,40 +243,53 @@ export default function TaskDetailPanel({ task, list = null, planning = false, o
 
       <Rail>
         {list && (
+          /* Not a control here — the same row shape as its neighbours so the
+             rail reads as one column, just without the hover. */
           <Field label="List">
-            <span className="inline-flex items-center gap-2 text-sm text-gray-700 py-1">
-              <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: list.color }} />
-              {list.name}
+            <span className="flex w-full items-center gap-2.5 min-w-0 px-2 py-[7px] text-[15px] leading-6 font-medium text-gray-700">
+              <ValueIcon>
+                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: list.color }} />
+              </ValueIcon>
+              <span className="truncate">{list.name}</span>
             </span>
           </Field>
         )}
 
-        <Field label="Priority">
-          <PriorityPicker priority={task.priority} onSelect={p => onPatch(task.id, { priority: p })} align="left">
+        {/* Hard rides the priority label, the same place the composer puts it:
+            a mark and not a row, because a field whose answer is the words
+            "Not hard" spends a third of the rail saying nothing — but on the
+            line it belongs to rather than up beside the close button. */}
+        <Field
+          label="Priority"
+          trailing={(
+            <HardToggle
+              value={task.is_hard}
+              onToggle={next => onPatch(task.id, { is_hard: next })}
+              size={17}
+              box="rounded-md p-1 -my-1 hover:bg-red-50"
+            />
+          )}
+        >
+          <PriorityPicker priority={task.priority} onSelect={p => onPatch(task.id, { priority: p })} align="left" full>
             <Value>
-              <PriorityIcon priority={task.priority} size={13} />
+              <ValueIcon><PriorityIcon priority={task.priority} size={14} /></ValueIcon>
               {priorityMeta(task.priority).label}
             </Value>
           </PriorityPicker>
         </Field>
 
         <Field label="Due">
-          <DatePicker value={task.due_date} onSelect={d => onPatch(task.id, { due_date: d })} label="Due date" align="left">
+          <DatePicker value={task.due_date} onSelect={d => onPatch(task.id, { due_date: d })} label="Due date" align="left" full>
             <Value empty={!task.due_date}>
-              <CalendarDays size={14} className="text-gray-400" />
-              {task.due_date ? formatDateLong(task.due_date) : 'No due date'}
+              <ValueIcon><CalendarDays size={15} /></ValueIcon>
+              <span className="truncate">{task.due_date ? formatDateLong(task.due_date) : 'No due date'}</span>
             </Value>
           </DatePicker>
-          {task.due_date && <DateChip iso={task.due_date} done={task.done} />}
-        </Field>
-
-        <Field label="Difficulty">
-          <HardToggle
-            value={task.is_hard}
-            onToggle={next => onPatch(task.id, { is_hard: next })}
-            size={14}
-            showLabel
-          />
+          {/* How near it is, under the date rather than beside it. Both want
+              the width — "Monday, September 8" and "3d late" are the same fact
+              in two tenses — and squeezing them onto one 200px line only
+              truncates the half that names the day. */}
+          {task.due_date && <DateChip iso={task.due_date} done={task.done} className="self-start ml-2" />}
         </Field>
 
         {/*
@@ -301,6 +315,7 @@ export default function TaskDetailPanel({ task, list = null, planning = false, o
               <DailyPriorityToggle
                 value={task.daily_priority}
                 onChange={half => onPatch(task.id, { daily_priority: half })}
+                className="self-start"
               />
             </Field>
           </div>

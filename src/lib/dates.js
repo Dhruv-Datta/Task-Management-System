@@ -95,6 +95,37 @@ export function addDaysISO(iso, days) {
   return toISODate(d);
 }
 
+/*
+  A month later, still a real date. `setMonth` alone turns Jan 31 into Mar 3,
+  which is nonsense on a calendar you are paging through: the header would skip
+  February entirely. Clamping to the last day of the target month is the answer
+  everyone means by "next month".
+*/
+export function addMonthsISO(iso, months) {
+  const d = fromISODate(iso);
+  if (!d) return null;
+  const day = d.getDate();
+  d.setDate(1);
+  d.setMonth(d.getMonth() + months);
+  const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  d.setDate(Math.min(day, lastDay));
+  return toISODate(d);
+}
+
+/**
+ * The six-week grid a month is drawn on: 42 ISO dates starting at the Sunday on
+ * or before the 1st, so the calendar's shape never changes as you page through
+ * it. Always six rows, even for a February that fits in five — a grid that
+ * grows and shrinks makes the buttons under it jump while you are aiming at one.
+ */
+export function monthGridISO(iso) {
+  const anchor = fromISODate(iso);
+  if (!anchor) return [];
+  const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+  const start = toISODate(new Date(first.getFullYear(), first.getMonth(), 1 - first.getDay()));
+  return Array.from({ length: 42 }, (_, i) => addDaysISO(start, i));
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // The clock: minutes past midnight
 // ─────────────────────────────────────────────────────────────────────────────
