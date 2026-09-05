@@ -50,7 +50,7 @@
 */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Flame, Plus, Search, X } from 'lucide-react';
+import { Plus, Search, X } from 'lucide-react';
 import { useAuth } from '@/lib/AuthContext';
 import { useTaskView } from '@/lib/taskView';
 import { useClusterBy, useGroupBy, useSortBy } from '@/lib/taskPrefs';
@@ -58,13 +58,13 @@ import {
   CLUSTER_BY, GROUP_BY, PRIORITIES, SORT_BY,
   createGroup as createGroupState,
   createList as createListState,
-  filterTasks, groupTasks, isOverdue,
+  filterTasks, groupTasks,
   moveListToGroup, removeGroup as removeGroupState,
   removeList as removeListState,
   renameGroup as renameGroupState,
   renameList as renameListState,
   reorderLists, resolveListsPayload,
-  taskSort, taskSummary,
+  taskSort,
 } from '@/lib/tasks';
 import {
   createTask, deleteTasksForList, fetchTasks, fetchLists,
@@ -80,29 +80,6 @@ import CalendarView from '@/components/tasks/CalendarView';
 import TaskDetailPanel from '@/components/tasks/TaskDetailPanel';
 import TaskComposer from '@/components/tasks/TaskComposer';
 import { MenuPortal, ShowCompletedToggle } from '@/components/tasks/TaskPickers';
-
-function SummaryStat({ icon: Icon, value, label, tone = 'gray', active, onClick }) {
-  const tones = {
-    gray: 'text-gray-500 hover:text-gray-800',
-    red: 'text-red-500 hover:text-red-600',
-    amber: 'text-amber-600 hover:text-amber-700',
-    emerald: 'text-emerald-600 hover:text-emerald-700',
-  };
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={!onClick}
-      className={`inline-flex items-center gap-1.5 text-xs transition-colors ${tones[tone]} ${
-        active ? 'font-bold underline underline-offset-4' : ''
-      } ${onClick ? 'cursor-pointer' : 'cursor-default'}`}
-    >
-      {Icon && <Icon size={12} />}
-      <span className="font-semibold">{value}</span>
-      <span className="text-gray-400">{label}</span>
-    </button>
-  );
-}
 
 /*
   A filter chip and its menu.
@@ -194,7 +171,6 @@ export default function TasksPage() {
   // Completed work shows by default: what landed this week is part of the
   // picture. The toggle on the Completed section is what puts it away.
   const [showCompleted, setShowCompleted] = useState(true);
-  const [quickFilter, setQuickFilter] = useState(null); // 'overdue' | 'hard'
   const [openTaskId, setOpenTaskId] = useState(null);
   const [composer, setComposer] = useState(null);      // null | defaults object
 
@@ -430,13 +406,8 @@ export default function TasksPage() {
   // ─── Derived view state ────────────────────────────────────────────────────
 
   const visible = useMemo(() => {
-    let list = filterTasks(tasks, { priority: priorityFilter, query, showCompleted });
-    if (quickFilter === 'overdue') list = list.filter(t => isOverdue(t));
-    if (quickFilter === 'hard') list = list.filter(t => t.is_hard && !t.done);
-    return list;
-  }, [tasks, priorityFilter, query, showCompleted, quickFilter]);
-
-  const summary = useMemo(() => taskSummary(visible), [visible]);
+    return filterTasks(tasks, { priority: priorityFilter, query, showCompleted });
+  }, [tasks, priorityFilter, query, showCompleted]);
 
   // Where "Show completed" lives: on the Completed section, whenever there is
   // one: the board always has that column, the list only when grouped by status.
@@ -519,12 +490,10 @@ export default function TasksPage() {
     return () => document.removeEventListener('keydown', onKey);
   }, [openComposer, composer, openTaskId]);
 
-  const toggleQuick = (key) => setQuickFilter(prev => (prev === key ? null : key));
-
   return (
     <div className="max-w-[1400px] mx-auto px-6 lg:px-12 pb-16">
       {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="flex items-start justify-between gap-4 flex-wrap mb-4 animate-fade-in-up">
+      <div className="flex items-start justify-between gap-4 flex-wrap mb-2.5 animate-fade-in-up">
         <div>
           {/*
             The switcher is the board's, so it is only drawn there. A dropdown
@@ -554,32 +523,6 @@ export default function TasksPage() {
               onDeleteGroup={handleDeleteGroup}
             />
           )}
-          <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-            <SummaryStat value={summary.open} label="open" />
-            {summary.overdue > 0 && (
-              <SummaryStat
-                icon={AlertTriangle}
-                value={summary.overdue}
-                label="late"
-                tone="red"
-                active={quickFilter === 'overdue'}
-                onClick={() => toggleQuick('overdue')}
-              />
-            )}
-            {summary.hard > 0 && (
-              <SummaryStat
-                icon={Flame}
-                value={summary.hard}
-                label="hard"
-                tone="amber"
-                active={quickFilter === 'hard'}
-                onClick={() => toggleQuick('hard')}
-              />
-            )}
-            {summary.completedRecently > 0 && (
-              <SummaryStat icon={CheckCircle2} value={summary.completedRecently} label="done this week" tone="emerald" />
-            )}
-          </div>
         </div>
 
         <div className="flex items-center gap-2">
@@ -691,9 +634,9 @@ export default function TasksPage() {
           <ShowCompletedToggle value={showCompleted} onToggle={() => setShowCompleted(s => !s)} />
         )}
 
-        {(quickFilter || priorityFilter || query) && (
+        {(priorityFilter || query) && (
           <button
-            onClick={() => { setQuickFilter(null); setPriorityFilter(null); setQuery(''); }}
+            onClick={() => { setPriorityFilter(null); setQuery(''); }}
             className="text-xs text-gray-400 hover:text-gray-700 px-1.5 transition-colors"
           >
             Clear filters
