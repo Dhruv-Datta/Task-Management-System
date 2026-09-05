@@ -636,6 +636,66 @@ export function normalizeExternals(list) {
 */
 export const MUST_DO_STAR = '⭐';
 
+/*
+  WHERE THE WORK CAME FROM, on the front of the description.
+
+  A block in Google Calendar says what you are doing and when, and by the time
+  you are looking at it on a phone the one thing it cannot say is WHICH PART OF
+  YOUR LIFE it belongs to — "Read chapter 4" is a different afternoon depending
+  on whether it came out of Thesis or out of Book club. The list is the answer
+  this app already has and was throwing away at the border, so it goes on the
+  front of every task's description, above whatever notes you keep there.
+
+  A MARK RATHER THAN A WORD ("📋 Thesis", not "List: Thesis"), for the same
+  reason the must-do star is a star: it survives being read in a two-line
+  preview, it is obviously not part of your own note, and it needs no
+  translating. It is one line, followed by a blank one, so the notes underneath
+  start where a paragraph starts.
+
+  AND IT COMES BACK OFF. The description is the task's notes and the two are
+  edited from both ends (see `adoptGoogleNotes`), so a description read back out
+  of Google has to be the notes ALONE — otherwise the header is adopted into the
+  task, and the next push puts a second one in front of it. `withoutListHeader`
+  is the exact inverse, and it is deliberately shape-based rather than
+  name-based: a list renamed between the push and the read is still the header
+  we wrote, and taking it off is still the right thing to do.
+*/
+export const LIST_MARK = '📋';
+
+/** The list a block came from, as its description's first line — '' for none. */
+export function listHeader(list) {
+  const name = String(list || '').trim();
+  return name ? `${LIST_MARK} ${name}` : '';
+}
+
+/** The description Google is given: where it came from, then what you wrote. */
+export function withListHeader(list, notes) {
+  const header = listHeader(list);
+  const body = String(notes || '');
+  if (!header) return body;
+  return body.trim() ? `${header}\n\n${body}` : header;
+}
+
+/**
+ * The same description with our header taken back off — the inverse of
+ * `withListHeader`, and the thing that keeps the round trip from accumulating.
+ *
+ * Only ever the FIRST line, and only when it is one of ours. A note of your own
+ * that happens to mention a list is untouched, and a header you deleted in
+ * Google stays deleted (until the next push writes the real one back, which is
+ * the app being right about where the task lives rather than an edit war).
+ */
+export function withoutListHeader(text) {
+  const body = String(text || '');
+  if (!body.startsWith(`${LIST_MARK} `)) return body;
+  const brk = body.indexOf('\n');
+  // Nothing but the header: the task has no notes, which is exactly what a
+  // block with no notes should read back as.
+  if (brk === -1) return '';
+  // One blank line after it is ours as well; a second is yours.
+  return body.slice(brk + 1).replace(/^\r?\n/, '');
+}
+
 /** A block's title as Google should hold it: yours, plus the star if you owe it today. */
 export function pushTitle(title, mustDo) {
   const name = String(title || '').trim() || 'Untitled task';
@@ -659,8 +719,13 @@ export function pushTitle(title, mustDo) {
  *
  * Sorted, so the same day always produces the same list — which is what lets
  * `pushSignature` mean "has anything changed since the last push".
+ *
+ * `listName` is (task) → the name of the list it lives in, and it is a function
+ * because the lists are the caller's: this file knows what a block looks like in
+ * Google and nothing about where the app keeps its lists. Absent, no header is
+ * written, which is what keeps this a pure function of the tasks it is given.
  */
-export function dayPushItems(tasks, date) {
+export function dayPushItems(tasks, date, listName = null) {
   if (!ISO_DATE.test(String(date))) return [];
 
   return (Array.isArray(tasks) ? tasks : [])
@@ -694,9 +759,13 @@ export function dayPushItems(tasks, date) {
 
           Clipped to what the day can carry in the OTHER direction
           (MAX_DESCRIPTION), so nothing is ever sent that a read could not bring
-          back whole.
+          back whole — and clipped AFTER the list header goes on the front, so
+          the one line that says where the work came from cannot be the line
+          that falls off the end.
         */
-        notes: clipDescription(String(task.notes || '')),
+        notes: clipDescription(
+          withListHeader(listName ? listName(task) : '', String(task.notes || ''))
+        ),
       };
     })
     // Sorted by where they sit on the DAY, so the 1am block is last rather than

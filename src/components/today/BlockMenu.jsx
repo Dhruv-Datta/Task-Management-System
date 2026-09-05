@@ -86,6 +86,9 @@ const FIELD = 'w-full text-gray-800 bg-white border border-gray-300 rounded-lg p
  * @param point       where the pointer was: { x, y } in viewport coordinates.
  * @param title       what it is called now.
  * @param description what it says now, or ''.
+ * @param descriptionHead one line above it that is not yours to edit — for a
+ *                    task, the list it came from, which is also the first line
+ *                    of the description Google is given.
  * @param labels      the tags this block may take — the ones on the calendar it
  *                    will be written to, and never a mixture (an id from another
  *                    calendar is an id the write would reject).
@@ -98,7 +101,7 @@ const FIELD = 'w-full text-gray-800 bg-white border border-gray-300 rounded-lg p
  *                    calendar, no tags defined yet, one occurrence of a repeat.
  */
 export default function BlockMenu({
-  point, title, subtitle, description = '', labels = [], labelId = null,
+  point, title, subtitle, description = '', descriptionHead = '', labels = [], labelId = null,
   note = null, readOnlyNote = null,
   onTag, onRename, onDescribe, onDelete, onClose,
 }) {
@@ -241,6 +244,22 @@ export default function BlockMenu({
         )}
 
         {subtitle && <p className="mt-0.5 px-0.5 text-[11px] text-gray-400 truncate">{subtitle}</p>}
+
+        {/*
+          WHERE IT CAME FROM, on top of the description and not in it.
+
+          It is the first line of the description Google holds for this block,
+          so it belongs here, above the notes, in the same order. It is not a
+          field: the way to change it is to move the task to another list, and
+          an editable copy of it here would be a second place to say where the
+          work lives — which is one place too many, and the one that would go
+          out of date.
+        */}
+        {descriptionHead && (
+          <p className="mt-1.5 px-0.5 text-[11.5px] font-semibold text-gray-500 truncate">
+            {descriptionHead}
+          </p>
+        )}
 
         {/*
           THE DESCRIPTION, under the name, in the shape it will have when you

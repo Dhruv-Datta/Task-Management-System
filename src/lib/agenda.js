@@ -519,8 +519,16 @@ function layout(blocks) {
  * The window opens at DAY_START–DAY_END and is stretched (out to whole hours)
  * by anything scheduled outside it, so a 6am start or an 11pm block is drawn
  * where it is rather than clamped to the edge and drawn as a lie.
+ *
+ * `listName` is (task) → the name of the list it came from, and it is here
+ * rather than looked up by each thing that draws a block: the list is part of
+ * what a task block IS on a calendar — "Read chapter 4" means one thing out of
+ * Thesis and another out of Book club — and it is written on the block, in its
+ * description, and into the Google event alike. A function, because the lists
+ * belong to the page; absent, a block simply has no list and everything drawing
+ * one leaves it out.
  */
-export function dayTimeline(tasks, events = [], today = todayISO(), external = []) {
+export function dayTimeline(tasks, events = [], today = todayISO(), external = [], listName = null) {
   const blocks = [];
 
   for (const task of tasks) {
@@ -538,6 +546,9 @@ export function dayTimeline(tasks, events = [], today = todayISO(), external = [
       id: task.id,
       title: task.title,
       task,
+      // Where the work came from. Only a task has one — a commitment is not in
+      // a list, and somebody else's meeting is not in yours.
+      list: (listName ? String(listName(task) || '') : '').trim(),
       // The tag, in the same place on all three kinds of block, so the grid can
       // colour one without first asking what it is.
       labelId: task.google_label_id || null,

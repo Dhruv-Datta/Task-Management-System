@@ -290,6 +290,27 @@ test('the timeline draws planned blocks and the day’s fixed commitments', () =
   assert.equal(timeline.hours[0], DAY_START);
 });
 
+test('a task block carries the list it came from; nothing else does', () => {
+  const timeline = dayTimeline(
+    [planned({ id: 'work', title: 'CAD', scheduled_start: '10:00', scheduled_minutes: 60 })],
+    [{ id: 'e1', title: 'Class', start: '09:00', minutes: 60 }],
+    today,
+    [],
+    () => 'Design',
+  );
+  assert.deepEqual(timeline.blocks.map(b => [b.kind, b.list]), [
+    ['event', undefined],
+    ['task', 'Design'],
+  ]);
+
+  // No resolver, no list: the timeline still draws, and everything reading a
+  // list simply has none to draw.
+  const bare = dayTimeline(
+    [planned({ id: 'work', scheduled_start: '10:00', scheduled_minutes: 60 })], [], today
+  );
+  assert.equal(bare.blocks[0].list, '');
+});
+
 test('a block’s length falls back to the estimate, then to a sane default', () => {
   const timeline = dayTimeline([
     planned({ id: 'a', scheduled_start: '09:00', estimated_minutes: 90 }),

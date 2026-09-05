@@ -6,6 +6,7 @@ import { DAY_WINDOW_END, MINUTES_PER_DAY, addDaysISO, dayClock, dayMinutes } fro
 import {
   DATE_PROPERTY, MAX_DESCRIPTION, MAX_EXTERNAL_EVENTS, TASK_ID_PROPERTY, daySignature,
   externalFromGoogle, itemSignature, noteDigest, noteDigestOf, normalizeLabels, withNoteDigest,
+  withoutListHeader,
 } from './googleEvents.js';
 import { forgetAccessToken, getAccessToken } from './googleAuth.js';
 
@@ -387,13 +388,16 @@ export async function writeCalendarTags(supabase) {
  * Returns Google's RAW items. Shaping them needs the calendar's labels, which
  * are fetched beside this rather than before it.
  */
+/** One page of events is all a day is ever read as. */
+const DAY_READ_CAP = 250;
+
 async function readCalendarDay(supabase, calendar, { date, timeZone, palette }) {
   const data = await callGoogle(supabase, `/calendars/${encodeURIComponent(calendar.id)}/events`, {
     params: {
       singleEvents: true,
       orderBy: 'startTime',
       showDeleted: false,
-      maxResults: 250,
+      maxResults: DAY_READ_CAP,
       timeMin: `${addDaysISO(date, -1)}T00:00:00Z`,
       timeMax: `${addDaysISO(date, 2)}T00:00:00Z`,
     },
@@ -412,7 +416,7 @@ async function readCalendarDay(supabase, calendar, { date, timeZone, palette }) 
  * else. What broke is reported alongside what worked, so the page can say
  * "three of your four calendars" instead of silently drawing a thinner day.
  */
-export async function readGoogleDay(supabase, { date, timeZone }) {
+export async function readGoogleDay(supabase, { date, timeZone, reap = true }) {
   const [calendars, palette, writeTags] = await Promise.all([
     listCalendars(supabase),
     colorPalette(supabase),
@@ -446,6 +450,14 @@ export async function readGoogleDay(supabase, { date, timeZone }) {
     half the entries are ids the write is about to reject.
   */
   const labelsByCalendar = {};
+  /*
+    The calendars this read can be TRUSTED TO HAVE COVERED: read without error,
+    and without hitting the cap. Only these let an event's absence mean it was
+    deleted (see `reapDeletedBlocks`); a calendar that failed, one you have
+    unticked, and one with more than a capped page of events in three days all
+    stay outside it, and are asked about separately or not at all.
+  */
+  const complete = new Set();
   results.forEach((result, i) => {
     if (result.status === 'rejected') {
       failed.push(calendars[i].summary);
@@ -454,6 +466,7 @@ export async function readGoogleDay(supabase, { date, timeZone }) {
     }
     const { calendar, labels, items } = result.value;
     labelsByCalendar[calendar.id] = normalizeLabels(Object.values(labels));
+    if (items.length < DAY_READ_CAP) complete.add(calendar.id);
     for (const raw of items) {
       /*
         Our own blocks are DROPPED from the day — they are already on the
@@ -487,6 +500,27 @@ export async function readGoogleDay(supabase, { date, timeZone }) {
     console.error('Failed to read notes back out of Google Calendar', err);
   }
 
+  /*
+    And the blocks you deleted IN GOOGLE come off the timeline, for the same
+    reason and at the same moment: this read is the only time anything looks at
+    the events we wrote. Strictly after the notes, never beside them — both
+    rewrite `google_pushed`, and two reads of it either side of one write would
+    put back what the other just took out.
+
+    Skipped straight after a push (`reap: false`), where every event was written
+    a second ago and the only thing a reconciliation could find is a race.
+
+    A failure costs the reconciliation and NOT the day, exactly as above.
+  */
+  let unplaced = [];
+  if (reap) {
+    try {
+      unplaced = await reapDeletedBlocks(supabase, date, blocks, complete);
+    } catch (err) {
+      console.error('Failed to reconcile blocks deleted in Google Calendar', err);
+    }
+  }
+
   return {
     events: events.slice(0, MAX_EXTERNAL_EVENTS),
     calendars: calendars.length,
@@ -495,6 +529,9 @@ export async function readGoogleDay(supabase, { date, timeZone }) {
     writeCalendar: writeTags,
     // The tasks whose notes Google turned out to know better than we did.
     notes,
+    // The tasks whose blocks Google no longer has, and which are therefore no
+    // longer on the timeline either.
+    unplaced,
   };
 }
 
@@ -592,7 +629,8 @@ export async function readPushState(supabase, date) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /*
-  A TASK'S NOTES AND ITS BLOCK'S DESCRIPTION ARE ONE FIELD WITH TWO EDITORS.
+  A TASK'S NOTES AND ITS BLOCK'S DESCRIPTION ARE ONE FIELD WITH TWO EDITORS,
+  minus one line.
 
   You can type into it here — the detail panel, or the description in a block's
   own menu — and you can type into it in Google Calendar, on a phone, in the
@@ -600,6 +638,12 @@ export async function readPushState(supabase, date) {
   question is never "which copy is right" but "which one MOVED", and that has an
   exact answer rather than a guess: the digest of what we last pushed, stored
   beside the event id (see `itemSignature`).
+
+  The line that is not shared is the one this app puts on the front — the list
+  the task came from (`withListHeader`). It is written on every push and taken
+  off again here, so it lives in Google and never in your notes; the digest is
+  of the WHOLE description, header and all, because that is the string the two
+  sides are comparing.
 
     Google's description matches it   nobody has touched it there. Whatever the
                                       task says now is the newer text, and it
@@ -673,7 +717,11 @@ export async function adoptGoogleNotes(supabase, date, blocks) {
   for (const item of changed) {
     const { data, error } = await supabase
       .from('tasks')
-      .update({ notes: item.description })
+      // The header this app writes on the front of every block's description
+      // (see `withListHeader`) is NOT part of the note and never becomes one.
+      // Adopting it would put a second one in front of it on the next push, and
+      // a third on the one after that.
+      .update({ notes: withoutListHeader(item.description) })
       .eq('id', item.taskId)
       .select('*')
       .maybeSingle();
@@ -689,6 +737,179 @@ export async function adoptGoogleNotes(supabase, date, blocks) {
     blob[date] = { at: entry.at, events: next };
     await writeSetting(supabase, PUSHED_KEY, blob);
   }
+  return rows;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The blocks that came back deleted
+// ─────────────────────────────────────────────────────────────────────────────
+
+/*
+  DELETING A BLOCK IN GOOGLE CALENDAR TAKES IT OFF THE TIMELINE.
+
+  The push already runs the other way round — unschedule a task here and its
+  event is removed from Google — and this is the missing half of that sentence.
+  Without it, a block you deleted on your phone came straight back the next time
+  you sent the day, and in between /today drew an hour that nothing on your real
+  calendar agreed with.
+
+  WHAT IT DOES IS UNSCHEDULE, NOT DELETE. Deleting the event says where the task
+  is not happening; it says nothing about whether the task exists. So the task
+  keeps its day, its priority and its place in the list, and simply goes back to
+  being unplaced — the same state a block dragged off the timeline lands in
+  (`schedulePatch(null)`), which is exactly the thing you would then re-place.
+
+  IT NEVER GUESSES FROM AN ABSENCE. A block missing from the day's read is only
+  a SUSPECT: the calendar it lives on may have failed, the read is capped, and
+  an event dragged to next Tuesday in Google is missing from today while being
+  very much alive. Each suspect is therefore asked about DIRECTLY, by id, and
+  only Google's own "gone" — 404, 410, or an event whose status is `cancelled` —
+  unschedules anything. Any other answer, including an error, leaves the block
+  alone: a Google outage must never quietly empty your day.
+*/
+
+/*
+  A CALENDAR'S EVENT IDS FOR ONE DAY, as one request, with "I could not tell"
+  said out loud.
+
+  Two different jobs need the same answer — the push, which must re-create a
+  block Google no longer has, and the reconciliation below, which must take one
+  off the timeline — and both of them are deciding something from an ABSENCE.
+  An absence is only evidence when the answer was complete, so this returns null
+  rather than a set whenever it might not have been: a read that failed, and a
+  read that came back full (the cap), where the event might simply be on the
+  next page nobody asked for. Both callers read null as "assume everything is
+  still there", which risks a stale block rather than a wrong one.
+*/
+async function liveEventIds(supabase, calendar, date) {
+  try {
+    const items = await readCalendarDay(supabase, calendar, { date });
+    if (items.length >= DAY_READ_CAP) return null;
+    return new Set(items.filter(item => item.status !== 'cancelled').map(item => item.id));
+  } catch (err) {
+    console.error(`Could not read back the Google calendar "${calendar.summary}"`, err);
+    return null;
+  }
+}
+
+/*
+  Google's answer to "is this one still there?", asked about ONE event, with
+  anything unclear read as "still there".
+
+  This is the second question, and it exists because a block missing from a
+  day's read has two very different explanations: you deleted it, or you dragged
+  it to next Tuesday in Google Calendar. Only the first is a block that is no
+  longer happening; the second is an event that is alive, and forgetting it here
+  would strand it in your calendar with nothing on our side pointing at it. It
+  costs a request per missing block, which is why it is asked only about the
+  handful the day's read already failed to find.
+*/
+async function eventIsGone(supabase, calendarId, eventId) {
+  try {
+    const event = await callGoogle(
+      supabase,
+      `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`
+    );
+    // A deleted event stays readable by id for a while, marked cancelled.
+    return event?.status === 'cancelled';
+  } catch (err) {
+    // 410 is "already deleted", 404 is "never heard of it". Anything else is
+    // Google having a bad minute, and is not evidence of anything.
+    return err.status === 404 || err.status === 410;
+  }
+}
+
+/**
+ * The blocks Google no longer has, taken off this day's timeline.
+ *
+ * `blocks` is what the day's read already found of our own events, and
+ * `complete` is the ids of the calendars that read can be trusted to have
+ * covered — read without error and without hitting the cap. Between them they
+ * answer for nothing at all in the ordinary case: an entry whose calendar was
+ * covered and whose block was found is alive, with no further request.
+ *
+ * Anything the day's read cannot speak for — an entry in a calendar you have
+ * unticked in Google's sidebar, or one that failed — is asked about with ONE
+ * read per such calendar rather than one per block, and a calendar that will
+ * not answer is left entirely alone.
+ *
+ * Returns the task rows it wrote — whole, like `adoptGoogleNotes`, so the
+ * browser adopts the new `version` along with the cleared block.
+ */
+export async function reapDeletedBlocks(supabase, date, blocks, complete) {
+  const blob = await readPushed(supabase);
+  const entry = dayEntry(blob, date);
+  const known = Object.entries(entry.events).filter(([, e]) => e?.eventId);
+  if (known.length === 0) return [];
+
+  /*
+    Our own events, as this day's read found them: the task, in the calendar the
+    record points at, stamped with THIS date. Yesterday's event for the same
+    task is in those items too — the read is a day either side — and it is not
+    this day's block.
+  */
+  const found = new Set(
+    blocks.filter(block => block.date === date).map(block => `${block.calendarId}\u0000${block.taskId}`)
+  );
+
+  // One read per calendar the day's own read could not speak for, made once and
+  // shared by every entry living there.
+  const reads = new Map();
+  const liveIn = async (calendarId) => {
+    if (!reads.has(calendarId)) {
+      reads.set(calendarId, liveEventIds(supabase, { id: calendarId, summary: calendarId }, date));
+    }
+    return reads.get(calendarId);
+  };
+
+  const gone = [];
+  for (const [taskId, event] of known) {
+    const calendarId = entryCalendar(event);
+    /*
+      Still where we left it? Answered for free when the day's read covered that
+      calendar, and otherwise by one read of the calendar itself. A read that
+      could not tell (`liveIn` → null) answers YES: a Google outage must never
+      quietly empty your day.
+    */
+    const present = complete?.has(calendarId)
+      ? found.has(`${calendarId}\u0000${taskId}`)
+      : (await liveIn(calendarId))?.has(event.eventId) ?? true;
+    if (present) continue;
+    // Missing is not yet deleted — it may have been dragged out of the day in
+    // Google — so the event itself is asked, and only it decides.
+    if (await eventIsGone(supabase, calendarId, event.eventId)) gone.push(taskId);
+  }
+  if (gone.length === 0) return [];
+
+  const next = { ...entry.events };
+  const rows = [];
+  for (const taskId of gone) {
+    delete next[taskId];
+    /*
+      Guarded on the day: a task that has since been moved to another date is
+      wearing another day's block, and this day's deleted event has no business
+      clearing it. The record still goes, because that event is gone whatever
+      the task now says.
+    */
+    const { data, error } = await supabase
+      .from('tasks')
+      .update({ scheduled_start: null, scheduled_minutes: null })
+      .eq('id', taskId)
+      .eq('planned_date', date)
+      .select('*')
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    // The task itself is gone, and its event outlived it by minutes. Nothing to
+    // unschedule; forgetting the event is the whole of the work.
+    if (data) rows.push(data);
+  }
+
+  // Emptied entirely: the day is not "sent with nothing in it", it is unsent,
+  // which is the same shape the push leaves behind when it removes the last
+  // block.
+  if (Object.keys(next).length > 0) blob[date] = { at: entry.at, events: next };
+  else delete blob[date];
+  await writeSetting(supabase, PUSHED_KEY, blob);
   return rows;
 }
 
@@ -836,7 +1057,9 @@ async function deleteEvent(supabase, calendarId, eventId) {
  *   moved / renamed patched in place, so the event keeps its identity — its
  *                   notifications, and whatever you may have added to it.
  *   unchanged       left completely alone. Re-sending a day you have not
- *                   touched writes nothing at all.
+ *                   touched writes nothing at all — UNLESS the event is no
+ *                   longer there, in which case it is made again (see
+ *                   `liveEventIds`).
  *   gone from today  deleted. A task you unscheduled, took off the day, or
  *                   dropped entirely takes its block out of your calendar with
  *                   it, because a plan you have changed your mind about is
@@ -873,9 +1096,39 @@ export async function pushGoogleDay(supabase, { date, timeZone, items }) {
     const calendar = await writeCalendar(supabase);
     result.calendar = calendar.summary;
 
+    /*
+      WHICH OF OUR EVENTS ARE STILL THERE, in one request before anything is
+      written. The reconciliation below decides what to write by comparing
+      signatures, and a signature only describes what the day SAYS — so an event
+      you deleted in Google Calendar reads as "unchanged, nothing to do" and
+      never comes back. That is the bug where deleting a block on your phone,
+      unscheduling it here and placing it again left the calendar with nothing
+      in it: three actions, no change of content, no write.
+
+      Null is "could not tell" (see `liveEventIds`), and everything below then
+      behaves exactly as it did before this existed.
+    */
+    const live = await liveEventIds(supabase, calendar, date);
+
     for (const item of items) {
       const signature = itemSignature(item);
-      const known = previous.events[item.taskId];
+      const stored = previous.events[item.taskId];
+      /*
+        An event we are holding an id for, that the calendar we would patch does
+        not have, is GONE — deleted in Google — and there is nothing left to
+        patch. Forgetting it here drops it into the create path below, which is
+        the only way it comes back.
+
+        Judged only against the calendar it lives in: an event in a calendar we
+        have since stopped writing to is absent from this read while being
+        perfectly alive, and that is the `elsewhere` case, which moves it.
+      */
+      const vanished = stored?.eventId
+        && live
+        && entryCalendar(stored) === calendar.id
+        && !live.has(stored.eventId);
+      const known = vanished ? undefined : stored;
+      if (vanished) delete next[item.taskId];
       // An event written before the destination changed is in the wrong
       // calendar. It cannot be patched into the right one — Google has no move
       // that a PATCH can express — so it is taken out of where it is and made

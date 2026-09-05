@@ -21,7 +21,8 @@ import {
   dayPushItems, daySignature, descriptionPreview, externalFromGoogle, findLabel, isValidTimeZone,
   itemSignature,
   labelColor, noteDigest, noteDigestOf, normalizeExternal, normalizeExternals, normalizeLabelId,
-  normalizeLabels, normalizePushItems, pushSignature, pushTitle, wallClock, withNoteDigest,
+  normalizeLabels, normalizePushItems, pushSignature, pushTitle, wallClock, withListHeader,
+  withNoteDigest, withoutListHeader,
 } from '../src/lib/googleEvents.js';
 import { normalizeTask } from '../src/lib/tasks.js';
 
@@ -322,6 +323,63 @@ test("a task's notes are its block's description, and travel with it", () => {
     }),
   ], DATE);
   assert.equal(long.notes.length, MAX_DESCRIPTION);
+});
+
+test('a block says which list it came from, before any notes', () => {
+  const listName = () => 'Thesis';
+  const [withNotes] = dayPushItems([
+    mk({
+      id: '1', title: 'Memo', notes: 'Ask about the deposit.',
+      planned_date: DATE, scheduled_start: '11:00', scheduled_minutes: 60,
+    }),
+  ], DATE, listName);
+  assert.equal(withNotes.notes, '📋 Thesis\n\nAsk about the deposit.');
+
+  // No notes is still a description: where the work came from is the point.
+  const [bare] = dayPushItems([
+    mk({ id: '1', title: 'Memo', planned_date: DATE, scheduled_start: '11:00' }),
+  ], DATE, listName);
+  assert.equal(bare.notes, '📋 Thesis');
+
+  // And the header cannot be the line that falls off the end of a long note.
+  const [long] = dayPushItems([
+    mk({
+      id: '1', title: 'Memo', notes: 'x'.repeat(MAX_DESCRIPTION + 500),
+      planned_date: DATE, scheduled_start: '11:00',
+    }),
+  ], DATE, listName);
+  assert.equal(long.notes.length, MAX_DESCRIPTION);
+  assert.ok(long.notes.startsWith('📋 Thesis\n\n'));
+
+  // Without a list to name, nothing is added at all.
+  const [none] = dayPushItems([
+    mk({ id: '1', title: 'Memo', notes: 'Plain.', planned_date: DATE, scheduled_start: '11:00' }),
+  ], DATE);
+  assert.equal(none.notes, 'Plain.');
+});
+
+test('the list header comes back off exactly as it went on', () => {
+  // The round trip that matters: what we send, read back, is the notes alone —
+  // so a description edited in Google is adopted without the header, and the
+  // next push does not put a second one in front of it.
+  const sent = withListHeader('Thesis', 'Ask about the deposit.');
+  assert.equal(withoutListHeader(sent), 'Ask about the deposit.');
+  assert.equal(withoutListHeader(withListHeader('Thesis', '')), '');
+  assert.equal(withListHeader('Thesis', withoutListHeader(sent)), sent);
+
+  // A note edited in Google keeps its own blank lines; only ours is taken.
+  assert.equal(
+    withoutListHeader('📋 Thesis\n\nFirst.\n\nSecond.'),
+    'First.\n\nSecond.'
+  );
+
+  // A list renamed since the push is still our header, and still comes off.
+  assert.equal(withoutListHeader('📋 Something else\n\nNote.'), 'Note.');
+
+  // Yours, and left alone: no header, and a note that merely starts with words.
+  assert.equal(withoutListHeader('Note.'), 'Note.');
+  assert.equal(withoutListHeader('Thesis: note.'), 'Thesis: note.');
+  assert.equal(withListHeader('', 'Note.'), 'Note.');
 });
 
 test('editing the notes is a change the calendar has to be told about', () => {

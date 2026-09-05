@@ -104,6 +104,17 @@ import { EventDialog, ScheduleDialog } from '@/components/today/DayForms';
 const REFRESH_AFTER_MS = 30_000;
 
 /*
+  How long a finished day waits before it sends itself to Google.
+
+  Long enough that a drag, a rename typed into a menu, or three quick edits in a
+  row are ONE push rather than one each — the day is compared as a whole, so a
+  push a second later is a push of everything that settled in that second. Short
+  enough that "immediately" is an honest description of it: you make a change,
+  and by the time you have looked away it is in your calendar.
+*/
+const AUTO_SEND_MS = 1_500;
+
+/*
   Puts the dragged card's TOP-LEFT under the cursor, rather than leaving it
   wherever in the row you happened to take hold of it.
 
@@ -290,17 +301,25 @@ export default function TodayPage() {
   }, [setTasks, today]);
 
   /*
-    NOTES THAT CAME BACK.
+    WHAT CAME BACK FROM GOOGLE, adopted into the tasks on screen.
 
-    A task's notes and its block's description are one field (see
-    `adoptGoogleNotes`), so it can be edited from Google Calendar as well as
-    from here — on a phone, in the event we put there — and the server adopts
-    such an edit into the task on its way past. What comes back is the whole
-    row, so this is a swap and not a patch: the new `version` lands with the new
-    words, and the next edit made here guards against the right row instead of
-    409-ing on a change this page asked for.
+    Reading the day is also a small sync in the other direction, and it can
+    rewrite a task twice over:
+
+      the NOTES     a task's notes and its block's description are one field
+                    (see `adoptGoogleNotes`), so it can be edited from Google
+                    Calendar as well as from here — on a phone, in the event we
+                    put there — and the server adopts such an edit on its way
+                    past.
+      the BLOCK     a block you DELETED in Google Calendar is a block that is no
+                    longer happening (see `reapDeletedBlocks`), so the server
+                    puts the task back to unplaced and the timeline drops it.
+
+    Both come back as whole rows, so this is a swap and not a patch: the new
+    `version` lands with the new values, and the next edit made here guards
+    against the right row instead of 409-ing on a change this page asked for.
   */
-  const adoptNotes = useCallback((rows) => {
+  const adoptRows = useCallback((rows) => {
     if (!Array.isArray(rows) || rows.length === 0) return;
     setTasks(prev => prev.map(task => rows.find(row => row.id === task.id) || task));
   }, [setTasks]);
@@ -353,7 +372,10 @@ export default function TodayPage() {
         stale: !!day.pushed?.stale,
         calendar: day.pushed?.calendar || null,
       }));
-      if (day.connected) adoptNotes(day.notes);
+      if (day.connected) {
+        adoptRows(day.notes);
+        adoptRows(day.unplaced);
+      }
     } catch (err) {
       console.error('Failed to read Google Calendar', err);
       setGoogle(prev => ({
@@ -367,7 +389,7 @@ export default function TodayPage() {
         error: err?.message || 'Google Calendar could not be read.',
       }));
     }
-  }, [adoptNotes, timeZone, today]);
+  }, [adoptRows, timeZone, today]);
 
   useEffect(() => {
     // Fired from inside an async closure, so nothing in loadAll's chain can set
@@ -417,6 +439,13 @@ export default function TodayPage() {
   const index = useMemo(() => listIndex(lists), [lists]);
   const listOptions = useMemo(() => [...index.values()], [index]);
   const listFor = useCallback(task => listOf(index, task.list_id), [index]);
+  /*
+    The same lookup reduced to a name, which is what the two things outside this
+    page's own components want: the timeline, which writes the list on every
+    task block, and the push, which writes it on the front of every Google
+    description. Neither of them has any use for the colour.
+  */
+  const listNameFor = useCallback(task => listFor(task).name, [listFor]);
 
   const day = useMemo(() => plannedDay(tasks, today), [tasks, today]);
   const summary = useMemo(() => daySummary(tasks, today), [tasks, today]);
@@ -430,8 +459,8 @@ export default function TodayPage() {
     Google.
   */
   const timeline = useMemo(
-    () => dayTimeline(tasks, events, today, external),
-    [tasks, events, today, external]
+    () => dayTimeline(tasks, events, today, external, listNameFor),
+    [tasks, events, today, external, listNameFor]
   );
   const attentionCount = useMemo(
     () => sections.reduce((count, section) => count + section.tasks.length, 0),
@@ -697,7 +726,11 @@ export default function TodayPage() {
   const sendToGoogle = useCallback(async () => {
     setSync(prev => ({ ...prev, status: 'sending', error: null }));
     try {
-      const res = await pushGoogleDay(today, timeZone, dayPushItems(tasksRef.current, today));
+      const res = await pushGoogleDay(
+        today,
+        timeZone,
+        dayPushItems(tasksRef.current, today, listNameFor)
+      );
       if (!res.ok) {
         setSync(prev => ({ ...prev, status: 'error', error: res.error }));
         /*
@@ -720,7 +753,7 @@ export default function TodayPage() {
         error: null,
       });
       setGoogleNotice(null);
-      adoptNotes(res.notes);
+      adoptRows(res.notes);
       setExternal(res.events || []);
       setLabels({ byCalendar: res.labels || {}, write: res.writeCalendar || null });
       setGoogle(prev => (prev ? { ...prev, failed: res.failed || [] } : prev));
@@ -728,7 +761,7 @@ export default function TodayPage() {
       console.error('Failed to send the day to Google Calendar', err);
       setSync(prev => ({ ...prev, status: 'error', error: err?.message || 'The day did not reach Google.' }));
     }
-  }, [adoptNotes, tasksRef, timeZone, today]);
+  }, [adoptRows, listNameFor, tasksRef, timeZone, today]);
 
   /*
     Finishing does both, and does not wait for the second: the page becomes the
@@ -1150,8 +1183,11 @@ export default function TodayPage() {
     that has been sent and then rearranged look identical on a timeline.
   */
   const pendingSignature = useMemo(
-    () => pushSignature(dayPushItems(tasks, today)),
-    [tasks, today]
+    // The same items the push sends, list header and all: a task moved to
+    // another list is a description Google no longer has, which is a day that
+    // has changed since it was sent.
+    () => pushSignature(dayPushItems(tasks, today, listNameFor)),
+    [listNameFor, tasks, today]
   );
   /*
     Two different ways to be out of date, and the second is invisible from here:
@@ -1164,6 +1200,92 @@ export default function TodayPage() {
     ...sync,
     dirty: sync.status === 'idle' && (sync.stale || pendingSignature !== sync.signature),
   }), [sync, pendingSignature]);
+
+  /*
+    THE DAY KEEPS ITSELF IN GOOGLE, WHILE YOU ARE STILL PLANNING IT.
+
+    Every edit to the calendar — moved, resized, renamed, retagged, a
+    description typed, a block placed or taken off — goes to Google as you make
+    it, whether or not you have pressed Finish. It is the same push the button
+    fires, off the same dirty flag, so it covers every edit without any of them
+    having to know that Google exists.
+
+    IT USED TO WAIT FOR FINISH, on the argument that a day mid-plan is a day you
+    are still changing your mind about and each intermediate arrangement would
+    be a notification. That was wrong about how the page is actually used: the
+    calendar step IS the planning, an hour you have just placed is a decision
+    and not a draft, and leaving it behind a button meant the calendar was right
+    only if you remembered to press one — where "Send changes" sitting unpressed
+    looks exactly like "sent". Finish still sends, because it is the moment you
+    ask whether the day reached your phone and an answer that says "already, an
+    hour ago" is the right one.
+
+    THE DEBOUNCE IS THE WHOLE MECHANISM. `dirty` is a signature comparison, so
+    the timer is restarted by each change and only the settled day is sent —
+    dragging a block through six positions is one push, not six. Effect cleanup
+    does that: a new render with a new signature clears the pending timer.
+
+    It never fires until the page has SETTLED, and that guard is doing more than
+    it looks. Tasks arrive after the Google state does, so for one render the
+    day is EMPTY while the record of what was sent is not — and an empty day
+    pushed against a full one is a reconciliation that deletes every block from
+    your calendar. Same reason a load that failed is left alone: half a day is
+    not a day, and it must never be written down as one. (What settling means is
+    also where the baseline is taken; see below.)
+
+    Only from `idle`. A push that failed says so on a button that offers to try
+    again, because the usual cause is a missing calendar, and retrying that on a
+    timer is just a loop that fails every few seconds instead of once.
+
+    AND EACH STATE IS ATTEMPTED ONCE. Dirty is "what is on screen differs from
+    what Google was told", and a push is supposed to end that — but the two
+    strings are computed on opposite sides of the wire, and a day the server
+    normalizes into something else (a title past its limit, a tag id it will not
+    accept) would still read as changed the moment the push returned. Pressing a
+    button forever is a person's choice; a timer doing it is a request every
+    second and a half until the tab is closed. So the state that has just been
+    sent by itself is remembered, and only a genuinely new one is sent again.
+    The button is untouched by this: it is exactly the place a send that did not
+    take should be tried by hand.
+  */
+  const autoKey = `${sync.stale ? 'stale' : 'fresh'}|${pendingSignature}`;
+  const autoSentRef = useRef(null);
+
+  /*
+    THE DAY AS WE FOUND IT IS NOT AN EDIT.
+
+    "Sent as you make it" is about the changes you make, and a page that has
+    just loaded has made none. It can still be dirty on arrival — a block
+    carried over from a day you did not finish, a task moved on another device,
+    a due date that went past — and pushing that on load would write into your
+    calendar for a day you have not opened yet, which is not what any of this
+    asked for.
+
+    So the state at the moment the page settles is recorded as though it had
+    already been sent, and only the next one is. This is the same one-shot
+    memory the send below keeps, seeded rather than added to: it remembers the
+    LAST state, not every state, so undoing an edit is a change like any other
+    and goes to Google exactly as the original did.
+  */
+  const settled = !loading && !loadError && google !== null;
+  useEffect(() => {
+    if (!settled || autoSentRef.current !== null) return;
+    autoSentRef.current = autoKey;
+  }, [autoKey, settled]);
+
+  const autoSend = !!google?.connected && settled
+    && syncView.dirty && sync.status === 'idle';
+  useEffect(() => {
+    if (!autoSend) return undefined;
+    const timer = setTimeout(() => {
+      // Checked here rather than above, where it would be a ref read during a
+      // render: same guard, and the only thing it gates is the send.
+      if (autoSentRef.current === autoKey) return;
+      autoSentRef.current = autoKey;
+      sendToGoogle();
+    }, AUTO_SEND_MS);
+    return () => clearTimeout(timer);
+  }, [autoKey, autoSend, sendToGoogle]);
 
   /*
     One control, handed to whichever timeline is on screen. It lives in the

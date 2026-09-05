@@ -165,19 +165,20 @@ export async function saveDayPlan(date, plan) {
   exactly once.
 */
 /*
-  A day carries back the tasks whose notes were edited in Google Calendar rather
-  than here — whole rows, adopted server-side on the way past — and every task
-  in this app is normalized before anything draws it. Doing that here keeps
-  /today holding one shape of task rather than two.
+  A day carries back tasks Google turned out to know something about — the ones
+  whose notes were edited there, and the ones whose blocks were deleted there —
+  as whole rows, adopted server-side on the way past. Every task in this app is
+  normalized before anything draws it, so it happens here, and /today holds one
+  shape of task rather than two.
 */
-function withAdoptedNotes(day) {
-  return { ...day, notes: normalizeTasks(day?.notes) };
+function withAdoptedTasks(day) {
+  return { ...day, notes: normalizeTasks(day?.notes), unplaced: normalizeTasks(day?.unplaced) };
 }
 
 export async function fetchGoogleDay(date, timeZone) {
   const params = new URLSearchParams({ date, tz: timeZone || '' });
   const res = await fetch(`/api/google/day?${params.toString()}`);
-  return withAdoptedNotes(await readJsonOrThrow(res));
+  return withAdoptedTasks(await readJsonOrThrow(res));
 }
 
 export async function pushGoogleDay(date, timeZone, items) {
@@ -189,7 +190,7 @@ export async function pushGoogleDay(date, timeZone, items) {
   const data = await readJson(res);
   return {
     ok: res.ok,
-    ...withAdoptedNotes(data),
+    ...withAdoptedTasks(data),
     error: res.ok ? null : (data.error || 'The day could not be sent.'),
   };
 }

@@ -89,7 +89,7 @@ import {
   DAY_WINDOW_END, MINUTES_PER_DAY, clockToMinutes, dayMinutes, formatClock, formatClockRange,
   formatHourLabel,
 } from '@/lib/dates';
-import { descriptionPreview, labelColor } from '@/lib/googleEvents';
+import { descriptionPreview, labelColor, listHeader } from '@/lib/googleEvents';
 import { TASK_COLOR, inkOn } from '@/lib/colors';
 import { Panel, PanelHead } from '@/components/dashboard/Panel';
 import BlockMenu from './BlockMenu';
@@ -223,6 +223,25 @@ function descriptionOf(block) {
 }
 
 /*
+  THE SAME WORDS AS THE BLOCK DRAWS THEM: where the task came from, then what
+  you wrote about it.
+
+  It is the same sentence Google is given (`withListHeader`), said in one line
+  instead of two, because a preview has already been collapsed to a single run
+  of text and a blank line is not a thing a two-line box can spend. The point is
+  the ORDER — the list first, then the note, whether or not there is a note —
+  so that the block, its tooltip and the event on your phone all say where the
+  hour came from in the same place.
+
+  Display only. The menu edits `descriptionOf`, which is your text and nothing
+  else; a preview that could be saved back would write the header into the note.
+*/
+function faceTextOf(block, limit) {
+  const head = block.kind === 'task' ? listHeader(block.list) : '';
+  return [head, descriptionPreview(descriptionOf(block), limit)].filter(Boolean).join(' · ');
+}
+
+/*
   THE TWO LINES a block carries, at the size its height allows.
 
   Shared by all three things drawn on this grid — a task, somebody else's
@@ -332,7 +351,7 @@ function tooltipFor(block, start, minutes) {
   const when = `${block.title} · ${formatClockRange(start, minutes)}`;
   // Under an hour the block has no room to draw it, and a quarter-hour with a
   // note on it should not be the one thing here you cannot read at all.
-  const note = descriptionPreview(descriptionOf(block), 200);
+  const note = faceTextOf(block, 200);
   if (block.kind !== 'external') return note ? `${when}\n${note}` : when;
 
   const event = block.external;
@@ -427,7 +446,7 @@ function Block({
     holding the edge — the block on screen is always the block you are about to
     commit, which is the rule the whole of this component is built on.
   */
-  const description = minutes >= DESCRIPTION_MIN_MINUTES ? descriptionPreview(descriptionOf(block)) : '';
+  const description = minutes >= DESCRIPTION_MIN_MINUTES ? faceTextOf(block) : '';
   const descriptionLines = description
     ? clamp(Math.floor((box.height - FACE_HEAD) / 14), 1, MAX_DESCRIPTION_LINES)
     : 0;
@@ -566,7 +585,12 @@ function Block({
               tight ? '-mr-0.5' : '-mr-1 -mt-[1px] p-0.5'
             }`}
           >
-            <X size={tight ? 10 : 11} strokeWidth={2.5} />
+            {/* Bigger than the 10/11 it was. It is a target you aim at on a
+                block a few pixels tall, and the two sizes are the same
+                distinction the rest of the face makes: a strip has room for a
+                glyph and nothing around it, anything taller has room for a
+                proper one. */}
+            <X size={tight ? 12 : 14} strokeWidth={2.5} />
           </button>
         ) : null}
       />
@@ -694,7 +718,11 @@ function menuSubtitle(block) {
     return [when, block.external?.calendar && `on ${block.external.calendar}`].filter(Boolean).join(' · ');
   }
   const when = formatClockRange(block.start, block.minutes);
-  return `${when} · ${block.kind === 'task' ? 'on today' : 'commitment'}`;
+  if (block.kind !== 'task') return `${when} · commitment`;
+  // The list, where there is one, in place of "on today": a menu opened on a
+  // block is being asked what this hour IS, and the list is a better answer
+  // than the one fact you could already see from the fact that it is drawn.
+  return `${when} · ${block.list || 'on today'}`;
 }
 
 export default function Timeline({
@@ -1109,8 +1137,14 @@ export default function Timeline({
             Red, with a dot on the rail, because that is what the line means
             everywhere else a day is drawn — and it has to win against blocks
             that are now solid colour themselves, which a green hairline over a
-            teal block does not. The rail says the actual time rather than the
-            word "now": the gutter is a column of times, and this is one.
+            teal block does not.
+
+            NOTHING IS WRITTEN IN THE GUTTER. It used to repeat the clock there,
+            which was one time too many: the gutter is already a column of hours
+            and the red one landed on top of them, so the nearest hour label was
+            unreadable for a quarter of every hour. The line's position is what
+            says when it is; the gutter's width is kept as a spacer so the rail
+            still starts where every block does.
           */}
           {nowMinutes !== null && nowMinutes >= timeline.startMinute && nowMinutes <= timeline.endMinute && (
             <div
@@ -1119,12 +1153,7 @@ export default function Timeline({
               style={{ top: (nowMinutes - origin) * PX_PER_MINUTE }}
             >
               <div className="flex items-center">
-                <span
-                  style={{ width: GUTTER }}
-                  className="shrink-0 pr-2.5 text-right text-[10px] font-bold tabular-nums text-red-600"
-                >
-                  {formatClock(nowMinutes)}
-                </span>
+                <span aria-hidden style={{ width: GUTTER }} className="shrink-0" />
                 <span className="relative flex-1 h-[1.5px] bg-red-500">
                   <span className="absolute -left-px -top-[4px] w-[10px] h-[10px] rounded-full bg-red-500" />
                 </span>
@@ -1199,6 +1228,10 @@ export default function Timeline({
             title={menuBlock.title}
             subtitle={menuSubtitle(menuBlock)}
             description={words.description}
+            // Above the description and not inside it: it is what Google is
+            // told before your notes, and it is not yours to edit here — the
+            // way to change it is to move the task to another list.
+            descriptionHead={menuBlock.kind === 'task' ? listHeader(menuBlock.list) : ''}
             labels={menuBlock.kind === 'external' && !menuBlock.external?.writable ? [] : labelsFor(menuBlock)}
             labelId={menuBlock.labelId || null}
             note={noteFor(menuBlock)}

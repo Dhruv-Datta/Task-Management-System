@@ -114,6 +114,10 @@ export async function GET(request) {
         // here, already adopted and handed back whole, so the page can put the
         // words on screen without re-reading the whole task list for them.
         notes: day.notes,
+        // And the other direction of the same idea: the tasks whose blocks you
+        // deleted in Google Calendar, already put back to unplaced here, handed
+        // back whole so the timeline can drop them without a re-read.
+        unplaced: day.unplaced,
         pushed,
         reason: null,
       });
@@ -163,7 +167,10 @@ export async function POST(request) {
     const items = normalizePushItems(body.items).slice(0, MAX_PUSH_ITEMS);
 
     const pushed = await pushGoogleDay(supabase, { date, timeZone, items });
-    const day = await readGoogleDay(supabase, { date, timeZone });
+    // `reap: false`: everything on this day was written a second ago, and the
+    // only thing a "has Google still got it?" pass could find here is a race
+    // with our own writes. The push does its own reconciliation.
+    const day = await readGoogleDay(supabase, { date, timeZone, reap: false });
 
     return apiJson({
       date,

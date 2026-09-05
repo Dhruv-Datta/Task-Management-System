@@ -13,7 +13,11 @@
                    here?" is a question you ask while looking at the timeline.
                    It connects, says how much it drew, refreshes, disconnects.
     GoogleSync     on the finished day, because "did what I decided reach my
-                   phone?" is a question you ask once, at the end.
+                   phone?" is a question you ask once, at the end. The day
+                   sends itself after every edit, planned or finished (see
+                   AUTO_SEND_MS in /today), so this mostly REPORTS — and stays
+                   pressable, for the send you want right now rather than in a
+                   second.
 
   WHICH CALENDARS ARE READ is not a setting here either: it is the ones ticked
   in Google Calendar's own sidebar. If a birthdays calendar is cluttering the
@@ -173,6 +177,13 @@ export function GoogleChip({ google, count, allDayCount = 0, refreshing, onRefre
  * timeline — the blocks are all still there — so the difference has to be said
  * out loud, or you close the laptop believing your phone knows about the
  * eleven-o'clock you moved twenty minutes ago.
+ *
+ * The changed state is now a MOMENT rather than a decision: the page sends
+ * itself a second and a half after you stop editing, from the first block you
+ * place to the last one you move. It is still drawn, because a second and a
+ * half of silence about a change you just made is exactly the wrong amount of
+ * silence, and it is still a button, because sometimes you are closing the
+ * laptop now.
  */
 export function GoogleSync({ google, sync, onSync }) {
   if (!google?.configured || !google.connected) return null;
@@ -205,7 +216,7 @@ export function GoogleSync({ google, sync, onSync }) {
       <button
         type="button"
         onClick={onSync}
-        title="The day has changed since it was last sent. Send it again to update Google Calendar."
+        title="The day has changed since it was last sent. It goes to Google by itself in a moment — press to send it now."
         className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-2 rounded-xl transition-colors active:scale-95"
       >
         <UploadCloud size={14} strokeWidth={2.5} />
@@ -215,9 +226,10 @@ export function GoogleSync({ google, sync, onSync }) {
   }
 
   /*
-    Sent, and up to date. Still a button, because "send it again" is the one
-    thing you want when you have deleted a block out of Google by hand and want
-    it back — but a quiet one, since there is nothing to do.
+    Sent, and up to date. Still a button, because a send is also a
+    RECONCILIATION — it is what re-creates a block you deleted in Google and
+    still want, and what moves the day into a calendar you have just renamed —
+    but a quiet one, since there is nothing to do.
   */
   return (
     <button
@@ -225,7 +237,7 @@ export function GoogleSync({ google, sync, onSync }) {
       onClick={onSync}
       title={[
         sync.at && `Last sent ${new Date(sync.at).toLocaleTimeString()}`,
-        'Press to send it again — useful if you have deleted a block out of Google by hand.',
+        'Press to send it again — it re-checks every block against your calendar.',
       ].filter(Boolean).join('\n')}
       className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-gray-400 hover:text-gray-700 hover:bg-gray-100 px-2.5 py-2 rounded-xl transition-colors"
     >
