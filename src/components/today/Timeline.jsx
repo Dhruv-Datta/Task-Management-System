@@ -159,11 +159,19 @@ function blockBox({ start, minutes, column, columns }, origin) {
   sizes, which is all the shapes there are: a strip that holds one line, a half
   hour that holds the name over the times tightly, and three quarters and up,
   which has room to breathe.
+
+  THE CLOCK IS SET SMALLER THAN THE NAME at every size, and by more than it used
+  to be. Two reasons, and the second is the one that was showing: a three-quarter
+  hour is forty-four pixels, which the name, the clock and two edges have to
+  share, and at eleven-over-fourteen the clock finished close enough to the
+  bottom edge to read as spilling out of the block rather than sitting in it. It
+  is also the SECOND thing you read — the block's position on the grid has
+  already told you roughly when it is — so it is the one that should give way.
 */
 const TYPE = {
   tight: { pad: 'px-1.5 py-0',     title: 'text-[10px] leading-[13px]', time: 'text-[10px] leading-[13px]', note: 'text-[10px] leading-[13px]' },
   snug:  { pad: 'px-1.5 py-[1px]', title: 'text-[11px] leading-[13px]', time: 'text-[10px] leading-[12px]', note: 'text-[10px] leading-[13px]' },
-  roomy: { pad: 'px-2 py-[3px]',   title: 'text-[12px] leading-[15px]', time: 'text-[11px] leading-[14px]', note: 'text-[11px] leading-[14px]' },
+  roomy: { pad: 'px-2 py-[3px]',   title: 'text-[12px] leading-[15px]', time: 'text-[10px] leading-[13px]', note: 'text-[11px] leading-[14px]' },
 };
 const typeFor = height => (height < 22 ? TYPE.tight : height < 40 ? TYPE.snug : TYPE.roomy);
 
@@ -581,8 +589,16 @@ function Block({
             onClick={(e) => { e.stopPropagation(); onUnschedule(block.task); }}
             title="Take the time off (stays on today)"
             style={{ color: ink }}
+            /*
+              The negative vertical margin is not cosmetic. This button sits in
+              the same flex row as the name, so a taller × makes the ROW taller,
+              and every pixel it takes there comes off the bottom of the block —
+              which on a half hour is the clock, clipped. Pulled back into the
+              block's own padding, it can be as big as it needs to be without
+              costing the two lines beneath it anything.
+            */
             className={`flex-shrink-0 rounded opacity-0 group-hover/block:opacity-75 hover:bg-black/15 transition-all ${
-              tight ? '-mr-0.5' : '-mr-1 -mt-[1px] p-0.5'
+              tight ? '-mr-0.5' : '-mr-1 -my-[2px] p-0.5'
             }`}
           >
             {/* Bigger than the 10/11 it was. It is a target you aim at on a
