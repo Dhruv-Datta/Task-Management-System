@@ -16,8 +16,8 @@ import {
   normalizeTask, normalizeStatus, statusPatch, filterTasks, groupTasks, clusterTasks,
   taskSummary, isOverdue, resolveListsPayload,
   createList, renameList, removeList, moveTaskToStatus, finalizeTaskDrag, columnId,
-  compareTasks, createGroup, renameGroup, removeGroup, moveListToGroup, reorderLists,
-  listTree,
+  compareTasks, compareByDueDate, compareByPosition, taskSort, boardSort,
+  createGroup, renameGroup, removeGroup, moveListToGroup, reorderLists, listTree,
 } from '../src/lib/tasks.js';
 import { sanitizeWritableFields } from '../src/lib/taskWrites.js';
 import { monthOfWeek, sameMonth, startOfWeek, startOfMonth } from '../src/lib/weekPlanner.js';
@@ -284,6 +284,74 @@ test('ordering: open before done, then priority, then due date', () => {
     mk({ id: 'urgent', priority: 'urgent' }),
   ].sort(compareTasks);
   assert.deepEqual(sorted.map(t => t.id), ['urgent', 'low', 'done']);
+});
+
+test('ordering by due date: soonest first, undated last, done last of all', () => {
+  const sorted = [
+    mk({ id: 'undated', priority: 'urgent' }),
+    mk({ id: 'friday', due_date: '2026-09-11', priority: 'low' }),
+    mk({ id: 'done', due_date: '2026-09-04', status: 'completed', priority: 'urgent' }),
+    mk({ id: 'monday', due_date: '2026-09-07', priority: 'low' }),
+  ].sort(compareByDueDate);
+  // A task with no deadline is not due in the year 9999; it is at the bottom,
+  // where you look once the dated work is placed.
+  assert.deepEqual(sorted.map(t => t.id), ['monday', 'friday', 'undated', 'done']);
+});
+
+test('a shared deadline is settled by priority, and the two orders disagree', () => {
+  const tasks = [
+    mk({ id: 'later-urgent', due_date: '2026-09-11', priority: 'urgent' }),
+    mk({ id: 'soon-low', due_date: '2026-09-07', priority: 'low' }),
+    mk({ id: 'soon-high', due_date: '2026-09-07', priority: 'high' }),
+  ];
+  assert.deepEqual(
+    [...tasks].sort(compareByDueDate).map(t => t.id),
+    ['soon-high', 'soon-low', 'later-urgent']
+  );
+  // The same facts, read the other way round: what matters most, not what is
+  // due first. Both orders exist because both questions get asked.
+  assert.deepEqual(
+    [...tasks].sort(compareTasks).map(t => t.id),
+    ['later-urgent', 'soon-high', 'soon-low']
+  );
+});
+
+test('the order work reads in is a choice, and an unknown one is the default', () => {
+  assert.equal(taskSort('due'), compareByDueDate);
+  assert.equal(taskSort('priority'), compareTasks);
+  assert.equal(taskSort(null), compareTasks);
+  assert.equal(taskSort('by-colour'), compareTasks);
+
+  // One key, two views: the board's default is the order you dragged the cards
+  // into, because that is what "I have not asked to change this" means there.
+  assert.equal(boardSort('due'), compareByDueDate);
+  assert.equal(boardSort('priority'), compareByPosition);
+  assert.equal(boardSort(null), compareByPosition);
+});
+
+test('a sorted board column ignores the manual order, runs and all', () => {
+  const column = [
+    mk({ id: 'dragged-first', position: 0, due_date: '2026-09-18', priority: 'high' }),
+    mk({ id: 'due-first', position: 5, due_date: '2026-09-07', priority: 'high' }),
+  ];
+  const sort = boardSort('due');
+  assert.deepEqual([...column].sort(sort).map(t => t.id), ['due-first', 'dragged-first']);
+  // Clustering re-sorts what it is given, so the sort has to reach it too or a
+  // grouped column would quietly fall back to drag order inside each run.
+  const [run] = clusterTasks(column, 'priority', { sort });
+  assert.deepEqual(run.tasks.map(t => t.id), ['due-first', 'dragged-first']);
+});
+
+test('sections are membership, the order inside them is the sort', () => {
+  const tasks = [
+    mk({ id: 'a', status: 'not_started', due_date: '2026-09-11', priority: 'urgent' }),
+    mk({ id: 'b', status: 'not_started', due_date: '2026-09-07', priority: 'low' }),
+  ];
+  const [todo] = groupTasks(tasks, 'status', { sort: taskSort('due') });
+  assert.deepEqual(todo.tasks.map(t => t.id), ['b', 'a']);
+  // Grouping is untouched by it: the same section, read the other way.
+  const [same] = groupTasks(tasks, 'status');
+  assert.deepEqual(same.tasks.map(t => t.id), ['a', 'b']);
 });
 
 test('write allow-list ignores anything it does not name', () => {

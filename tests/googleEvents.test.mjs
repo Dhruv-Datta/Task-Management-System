@@ -20,8 +20,8 @@ import {
   EXTERNAL_FALLBACK_COLOR, MAX_DESCRIPTION, MIN_EXTERNAL_MINUTES, MUST_DO_STAR, TASK_ID_PROPERTY, asDrawn,
   dayPushItems, daySignature, descriptionPreview, externalFromGoogle, findLabel, isValidTimeZone,
   itemSignature,
-  labelColor, normalizeExternal, normalizeExternals, normalizeLabelId, normalizeLabels,
-  normalizePushItems, pushSignature, pushTitle, wallClock,
+  labelColor, noteDigest, noteDigestOf, normalizeExternal, normalizeExternals, normalizeLabelId,
+  normalizeLabels, normalizePushItems, pushSignature, pushTitle, wallClock, withNoteDigest,
 } from '../src/lib/googleEvents.js';
 import { normalizeTask } from '../src/lib/tasks.js';
 
@@ -300,8 +300,82 @@ test('only tasks planned for the day AND given an hour are sent', () => {
   // Starred, because `normalizeTask` puts an unstated task on the day as
   // must_do — a deadline is a commitment by default (see DEFAULT_DAILY_PRIORITY).
   assert.deepEqual(items, [{
-    taskId: '1', title: `Memo ${MUST_DO_STAR}`, start: '11:00', minutes: 60, labelId: null,
+    taskId: '1', title: `Memo ${MUST_DO_STAR}`, start: '11:00', minutes: 60, labelId: null, notes: '',
   }]);
+});
+
+test("a task's notes are its block's description, and travel with it", () => {
+  const [item] = dayPushItems([
+    mk({
+      id: '1', title: 'Memo', notes: 'Ask about the deposit.',
+      planned_date: DATE, scheduled_start: '11:00', scheduled_minutes: 60,
+    }),
+  ], DATE);
+  assert.equal(item.notes, 'Ask about the deposit.');
+
+  // Longer than the day carries in the other direction is clipped here too, so
+  // nothing is ever sent that a read could not bring back whole.
+  const [long] = dayPushItems([
+    mk({
+      id: '1', title: 'Memo', notes: 'x'.repeat(MAX_DESCRIPTION + 500),
+      planned_date: DATE, scheduled_start: '11:00',
+    }),
+  ], DATE);
+  assert.equal(long.notes.length, MAX_DESCRIPTION);
+});
+
+test('editing the notes is a change the calendar has to be told about', () => {
+  const block = { taskId: '1', title: 'Memo', start: '11:00', minutes: 60 };
+  const before = itemSignature({ ...block, notes: 'Ask about the deposit.' });
+
+  assert.notEqual(before, itemSignature({ ...block, notes: 'Ask about the lease.' }));
+  // Deleting a note is a change as well: '' is what clears the description.
+  assert.notEqual(before, itemSignature({ ...block, notes: '' }));
+  assert.equal(before, itemSignature({ ...block, notes: 'Ask about the deposit.' }));
+  // A title is the one field that may contain the separator, so it goes last
+  // and nothing after it can be found wrongly.
+  assert.notEqual(
+    itemSignature({ ...block, title: 'a|b', notes: 'one' }),
+    itemSignature({ ...block, title: 'a', notes: 'b|one' })
+  );
+});
+
+test('the note in a signature can be swapped for the one Google now holds', () => {
+  const item = { taskId: '1', title: 'Memo|revised', start: '11:00', minutes: 60, notes: 'ours' };
+  const theirs = noteDigest('typed on the phone');
+  // What the server does when it adopts an edit made in Google: the record of
+  // what we sent moves to the new words, and matches what the browser will
+  // compute from the notes it has just been handed.
+  assert.equal(
+    withNoteDigest(itemSignature(item), theirs),
+    itemSignature({ ...item, notes: 'typed on the phone' })
+  );
+  assert.equal(noteDigestOf(itemSignature(item)), noteDigest('ours'));
+
+  // No note is no digest, rather than the hash of an empty string.
+  assert.equal(noteDigest(''), '');
+  // A signature written before notes travelled has no field to swap, and reads
+  // as "changed", which is what it is.
+  const old = '11:00+60||Memo';
+  assert.equal(withNoteDigest(old, theirs), old);
+  assert.equal(noteDigestOf(old), '');
+});
+
+test('the description survives the round trip through the push body', () => {
+  const [item] = normalizePushItems([
+    { taskId: '1', title: 'Memo', start: '11:00', minutes: 60, notes: 'Ask about the deposit.' },
+  ]);
+  assert.equal(item.notes, 'Ask about the deposit.');
+
+  // A block whose notes were never mentioned has none, which is the same
+  // instruction as an empty one: clear whatever Google is still holding.
+  const [silent] = normalizePushItems([{ taskId: '2', title: 'Memo', start: '11:00' }]);
+  assert.equal(silent.notes, '');
+
+  const [long] = normalizePushItems([
+    { taskId: '3', title: 'Memo', start: '11:00', notes: 'x'.repeat(MAX_DESCRIPTION + 1) },
+  ]);
+  assert.equal(long.notes.length, MAX_DESCRIPTION);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

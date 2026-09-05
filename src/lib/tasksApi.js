@@ -164,10 +164,20 @@ export async function saveDayPlan(date, plan) {
   before they reach the browser, so the timeline redraws showing each thing
   exactly once.
 */
+/*
+  A day carries back the tasks whose notes were edited in Google Calendar rather
+  than here — whole rows, adopted server-side on the way past — and every task
+  in this app is normalized before anything draws it. Doing that here keeps
+  /today holding one shape of task rather than two.
+*/
+function withAdoptedNotes(day) {
+  return { ...day, notes: normalizeTasks(day?.notes) };
+}
+
 export async function fetchGoogleDay(date, timeZone) {
   const params = new URLSearchParams({ date, tz: timeZone || '' });
   const res = await fetch(`/api/google/day?${params.toString()}`);
-  return readJsonOrThrow(res);
+  return withAdoptedNotes(await readJsonOrThrow(res));
 }
 
 export async function pushGoogleDay(date, timeZone, items) {
@@ -177,7 +187,11 @@ export async function pushGoogleDay(date, timeZone, items) {
     body: JSON.stringify({ date, tz: timeZone, items }),
   });
   const data = await readJson(res);
-  return { ok: res.ok, ...data, error: res.ok ? null : (data.error || 'The day could not be sent.') };
+  return {
+    ok: res.ok,
+    ...withAdoptedNotes(data),
+    error: res.ok ? null : (data.error || 'The day could not be sent.'),
+  };
 }
 
 /*

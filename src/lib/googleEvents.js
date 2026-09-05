@@ -681,6 +681,22 @@ export function dayPushItems(tasks, date) {
         // "no opinion" but "no tag": it is what puts a retagged block back to
         // Tomato, so it travels rather than being omitted.
         labelId: String(task.google_label_id || '').trim() || null,
+        /*
+          THE NOTES, which become the event's description — not a copy of them,
+          the same field. It is what the detail panel edits, what the block on
+          /today already draws under its clock, and what its menu already
+          writes; an event carrying anything else would be the same block saying
+          two different things in two places.
+
+          Empty travels as well as full: '' is what CLEARS a description Google
+          is still holding from the last push, and a task whose notes you have
+          deleted must not keep them in your calendar.
+
+          Clipped to what the day can carry in the OTHER direction
+          (MAX_DESCRIPTION), so nothing is ever sent that a read could not bring
+          back whole.
+        */
+        notes: clipDescription(String(task.notes || '')),
       };
     })
     // Sorted by where they sit on the DAY, so the 1am block is last rather than
@@ -703,8 +719,83 @@ export function dayPushItems(tasks, date) {
   of what was written. Comparing those two is the whole of "the day has changed
   since you sent it", and it has to be an identity, not a heuristic.
 */
+/*
+  A NOTE, IN SIXTEEN CHARACTERS.
+
+  The signature is kept per task per day for a month of days, all of it in one
+  settings row, so it cannot carry the note itself — a paragraph of prose on
+  each of eight blocks would be the whole blob. A digest answers the only
+  question ever asked of that text, and answers it in both directions: "is this
+  what we sent?", of the day on screen, and of a description read back out of
+  Google (see `adoptGoogleNotes`).
+
+  FNV-1a, twice, over different seeds. Not a security boundary — nobody is
+  attacking their own calendar — but one 32-bit hash over prose collides often
+  enough to matter when the cost of a collision is an edit that silently never
+  reaches the calendar, which is the one failure this field exists to prevent.
+
+  No note is the empty string rather than the hash of one, so an ordinary
+  block's signature stays a thing you can read in a log.
+*/
+function fnv1a(text, seed) {
+  let hash = seed >>> 0;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, '0');
+}
+
+export function noteDigest(text) {
+  const words = String(text || '');
+  return words ? `${fnv1a(words, 0x811c9dc5)}${fnv1a(words, 0x9e3779b9)}` : '';
+}
+
+/*
+  The title goes LAST and everything else is fixed-shape, because a title is the
+  one field here that may itself contain a '|'. Nothing needs to be found after
+  it, so nothing can be found wrongly.
+
+  Adding the digest changed this format, which means every day already sent
+  reads as changed once and re-sends. That is correct rather than unfortunate:
+  those events are sitting in Google with no description at all.
+*/
 export function itemSignature(item) {
-  return `${item.start}+${item.minutes}|${item.labelId || ''}|${item.title}`;
+  return `${item.start}+${item.minutes}|${item.labelId || ''}|${noteDigest(item.notes)}|${item.title}`;
+}
+
+/**
+ * The same signature, with the note it describes replaced.
+ *
+ * A description edited in Google Calendar itself is adopted into the task's
+ * notes rather than overwritten (see `adoptGoogleNotes`), and after that Google
+ * holds exactly what the browser is about to compute a signature for — so the
+ * record of what we sent has to move with it, or /today would offer to send a
+ * day that is already there. The format lives here and not at the call site,
+ * which is the whole reason this is a function.
+ *
+ * A signature written before notes travelled has no field to replace; it is
+ * left alone, and reads as "changed", which is what it is.
+ */
+export function withNoteDigest(signature, digest) {
+  const parts = String(signature || '').split('|');
+  if (parts.length < 4) return signature;
+  parts[2] = digest;
+  return parts.join('|');
+}
+
+/**
+ * The note we last sent, out of the signature we stored — which is where it
+ * already lives, so there is no second field to be told about a push and no
+ * second field to fall behind one.
+ *
+ * An old signature has none, and '' reads correctly as "no description was ever
+ * written for this block": those events went up before notes travelled, and
+ * Google is holding nothing for them.
+ */
+export function noteDigestOf(signature) {
+  const parts = String(signature || '').split('|');
+  return parts.length < 4 ? '' : parts[2];
 }
 
 export function daySignature(entries) {
@@ -745,6 +836,11 @@ export function normalizePushItem(raw) {
     start: dayClock(start),
     minutes: Math.min(minutes, DAY_WINDOW_END - start),
     labelId: normalizeLabelId(raw.labelId),
+    // The description, capped at what the day carries and NOT trimmed to
+    // nothing: an empty note is a real instruction (clear the description), and
+    // a missing one is the same instruction, since a block whose notes were
+    // never mentioned has none.
+    notes: clipDescription(String(raw.notes || '')),
   };
 }
 

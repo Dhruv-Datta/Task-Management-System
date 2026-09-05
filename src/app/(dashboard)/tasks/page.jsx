@@ -53,9 +53,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Flame, Plus, Search, X } from 'lucide-react';
 import { useAuth } from '@/lib/AuthContext';
 import { useTaskView } from '@/lib/taskView';
-import { useClusterBy, useGroupBy } from '@/lib/taskPrefs';
+import { useClusterBy, useGroupBy, useSortBy } from '@/lib/taskPrefs';
 import {
-  CLUSTER_BY, GROUP_BY, PRIORITIES,
+  CLUSTER_BY, GROUP_BY, PRIORITIES, SORT_BY,
   createGroup as createGroupState,
   createList as createListState,
   filterTasks, groupTasks, isOverdue,
@@ -64,7 +64,7 @@ import {
   renameGroup as renameGroupState,
   renameList as renameListState,
   reorderLists, resolveListsPayload,
-  taskSummary,
+  taskSort, taskSummary,
 } from '@/lib/tasks';
 import {
   createTask, deleteTasksForList, fetchTasks, fetchLists,
@@ -187,6 +187,7 @@ export default function TasksPage() {
   const { view: layout } = useTaskView();
   // Both remembered across visits (lib/taskPrefs), the same way the view is.
   const [groupBy, setGroupBy] = useGroupBy();          // list: what the sections are
+  const [sortBy, setSortBy] = useSortBy();             // list: the order inside them
   const [clusterBy, setClusterBy] = useClusterBy();    // board: how each column is gathered
   const [query, setQuery] = useState('');
   const [priorityFilter, setPriorityFilter] = useState(null);
@@ -458,8 +459,8 @@ export default function TasksPage() {
     able to group by it.
   */
   const groups = useMemo(
-    () => groupTasks(visible, groupBy, { lists: listOptions }),
-    [visible, groupBy, listOptions]
+    () => groupTasks(visible, groupBy, { sort: taskSort(sortBy), lists: listOptions }),
+    [visible, groupBy, sortBy, listOptions]
   );
 
   const openTask = openTaskId ? tasks.find(t => t.id === openTaskId) : null;
@@ -631,6 +632,24 @@ export default function TasksPage() {
           />
         )}
 
+        {/*
+          The order INSIDE those sections, which is a different question from
+          what the sections are: "by list, soonest first" is a sentence, and
+          before this the second half of it was a constant.
+
+          The list has no manual order to protect, so it always has one of these
+          and the default is named outright.
+        */}
+        {layout === 'list' && (
+          <FilterMenu
+            label="Sort by"
+            value={sortBy}
+            onSelect={key => setSortBy(key || 'priority')}
+            clearable={false}
+            options={SORT_BY.map(o => ({ key: o.key, label: `By ${o.label.toLowerCase()}` }))}
+          />
+        )}
+
         {/* The board's columns are always the statuses; this gathers the cards
             INSIDE each column, so it starts at "no grouping". */}
         {layout === 'board' && (
@@ -640,6 +659,26 @@ export default function TasksPage() {
             value={clusterBy}
             onSelect={setClusterBy}
             options={CLUSTER_BY.map(c => ({ key: c.key, label: `By ${c.label.toLowerCase()}` }))}
+          />
+        )}
+
+        {/*
+          The same choice on the board, said the way the board means it: here
+          the thing you have not asked to change is the order you DRAGGED the
+          cards into, so that is the clear row rather than an option, exactly as
+          "No grouping" is next door. Choosing an order turns dragging within a
+          column off while it is on (see TaskBoardView) — a card dropped above
+          another one would only spring back to its date.
+        */}
+        {layout === 'board' && (
+          <FilterMenu
+            label="Sort by"
+            anyLabel="Drag order"
+            value={sortBy === 'priority' ? null : sortBy}
+            onSelect={key => setSortBy(key || 'priority')}
+            options={SORT_BY
+              .filter(o => o.key !== 'priority')
+              .map(o => ({ key: o.key, label: `By ${o.label.toLowerCase()}` }))}
           />
         )}
 
@@ -678,6 +717,7 @@ export default function TasksPage() {
       ) : layout === 'board' ? (
         <TaskBoardView
           tasks={visible}
+          sortBy={sortBy}
           clusterBy={clusterBy}
           onPatch={patchTask}
           onOpen={t => setOpenTaskId(t.id)}

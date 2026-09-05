@@ -290,6 +290,22 @@ export default function TodayPage() {
   }, [setTasks, today]);
 
   /*
+    NOTES THAT CAME BACK.
+
+    A task's notes and its block's description are one field (see
+    `adoptGoogleNotes`), so it can be edited from Google Calendar as well as
+    from here — on a phone, in the event we put there — and the server adopts
+    such an edit into the task on its way past. What comes back is the whole
+    row, so this is a swap and not a patch: the new `version` lands with the new
+    words, and the next edit made here guards against the right row instead of
+    409-ing on a change this page asked for.
+  */
+  const adoptNotes = useCallback((rows) => {
+    if (!Array.isArray(rows) || rows.length === 0) return;
+    setTasks(prev => prev.map(task => rows.find(row => row.id === task.id) || task));
+  }, [setTasks]);
+
+  /*
     GOOGLE, read on its own.
 
     Deliberately not part of loadAll, and the reason is the whole posture of
@@ -337,6 +353,7 @@ export default function TodayPage() {
         stale: !!day.pushed?.stale,
         calendar: day.pushed?.calendar || null,
       }));
+      if (day.connected) adoptNotes(day.notes);
     } catch (err) {
       console.error('Failed to read Google Calendar', err);
       setGoogle(prev => ({
@@ -350,7 +367,7 @@ export default function TodayPage() {
         error: err?.message || 'Google Calendar could not be read.',
       }));
     }
-  }, [timeZone, today]);
+  }, [adoptNotes, timeZone, today]);
 
   useEffect(() => {
     // Fired from inside an async closure, so nothing in loadAll's chain can set
@@ -703,6 +720,7 @@ export default function TodayPage() {
         error: null,
       });
       setGoogleNotice(null);
+      adoptNotes(res.notes);
       setExternal(res.events || []);
       setLabels({ byCalendar: res.labels || {}, write: res.writeCalendar || null });
       setGoogle(prev => (prev ? { ...prev, failed: res.failed || [] } : prev));
@@ -710,7 +728,7 @@ export default function TodayPage() {
       console.error('Failed to send the day to Google Calendar', err);
       setSync(prev => ({ ...prev, status: 'error', error: err?.message || 'The day did not reach Google.' }));
     }
-  }, [tasksRef, timeZone, today]);
+  }, [adoptNotes, tasksRef, timeZone, today]);
 
   /*
     Finishing does both, and does not wait for the second: the page becomes the

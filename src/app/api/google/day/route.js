@@ -63,6 +63,7 @@ function disconnected(date, reason) {
     // and looking broken.
     labels: {},
     writeCalendar: null,
+    notes: [],
     pushed: { at: null, count: 0, signature: '' },
     reason,
   });
@@ -84,10 +85,16 @@ export async function GET(request) {
     const timeZone = resolveTimeZone(params.get('tz'));
 
     try {
-      const [day, pushed] = await Promise.all([
-        readGoogleDay(supabase, { date, timeZone }),
-        readPushState(supabase, date),
-      ]);
+      /*
+        In this order, and not in parallel, for one reason: reading the day is
+        also what notices a description edited in Google Calendar itself, and
+        adopting one MOVES the record of what we last sent (see
+        `adoptGoogleNotes`). Asked at the same moment, `readPushState` would
+        answer from the record as it was a moment ago, and /today would offer to
+        send a day that is already sitting in the calendar it came from.
+      */
+      const day = await readGoogleDay(supabase, { date, timeZone });
+      const pushed = await readPushState(supabase, date);
 
       return apiJson({
         date,
@@ -103,6 +110,10 @@ export async function GET(request) {
         // a task block or a commitment of yours may take.
         labels: day.labels,
         writeCalendar: day.writeCalendar,
+        // The tasks whose notes were edited in Google Calendar rather than
+        // here, already adopted and handed back whole, so the page can put the
+        // words on screen without re-reading the whole task list for them.
+        notes: day.notes,
         pushed,
         reason: null,
       });
@@ -162,6 +173,7 @@ export async function POST(request) {
       failed: day.failed,
       labels: day.labels,
       writeCalendar: day.writeCalendar,
+      notes: day.notes,
     });
   });
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useSyncExternalStore } from 'react';
-import { CLUSTER_BY, GROUP_BY } from './tasks';
+import { CLUSTER_BY, GROUP_BY, SORT_BY } from './tasks';
 
 /*
   How you like to LOOK at a list: what the list view's sections are, and how a
@@ -74,6 +74,12 @@ const clusterByStore = choice('tasks.clusterBy', value => (
   CLUSTER_BY.some(c => c.key === value) ? value : null
 ));
 
+// The order inside those sections. Always something, and the something it
+// defaults to is the order the list has always read in.
+const sortByStore = choice('tasks.sortBy', value => (
+  SORT_BY.some(o => o.key === value) ? value : 'priority'
+));
+
 /** What the list view's sections are. Always something; defaults to status. */
 export function useGroupBy() {
   const groupBy = useSyncExternalStore(groupByStore.subscribe, groupByStore.get, groupByStore.server);
@@ -84,4 +90,10 @@ export function useGroupBy() {
 export function useClusterBy() {
   const clusterBy = useSyncExternalStore(clusterByStore.subscribe, clusterByStore.get, clusterByStore.server);
   return [clusterBy, clusterByStore.write];
+}
+
+/** What the list reads in order of: 'priority' (the default) or 'due'. */
+export function useSortBy() {
+  const sortBy = useSyncExternalStore(sortByStore.subscribe, sortByStore.get, sortByStore.server);
+  return [sortBy, sortByStore.write];
 }

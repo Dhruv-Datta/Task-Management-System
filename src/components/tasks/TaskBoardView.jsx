@@ -35,7 +35,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 import { Plus } from 'lucide-react';
 import {
-  STATUSES, clusterTasks, columnId, compareByPosition, findColumn, finalizeTaskDrag, moveTaskToStatus,
+  STATUSES, boardSort, clusterTasks, columnId, findColumn, finalizeTaskDrag, moveTaskToStatus,
 } from '@/lib/tasks';
 import { TaskCard } from './TaskItems';
 import { OVERLAY_Z, ShowCompletedToggle } from './TaskPickers';
@@ -134,8 +134,8 @@ function Column({
 }
 
 export default function TaskBoardView({
-  tasks, clusterBy = null, onPatch, onOpen, onAdd, onDragCommit, showCompleted, onToggleCompleted,
-  vertical = false, reorderable = true,
+  tasks, clusterBy = null, sortBy = 'priority', onPatch, onOpen, onAdd, onDragCommit,
+  showCompleted, onToggleCompleted, vertical = false, reorderable = true,
 }) {
   const [draftTasks, setDraftTasks] = useState(null);
   const snapshot = useRef(null);
@@ -144,11 +144,23 @@ export default function TaskBoardView({
 
   const list = draftTasks ?? tasks;
 
+  /*
+    The order inside a column: what you dragged, or what you asked for instead
+    (`boardSort`). It is handed to `clusterTasks` as well as used here, or a
+    grouped column would re-sort its runs back into drag order underneath the
+    sort you chose.
+  */
+  const sort = boardSort(sortBy);
+  // An order of your own is one a drag can still rearrange. Any other is the
+  // board telling you where a card goes, and a within-column drop under it
+  // would be undone by the next render.
+  const imposed = sort !== boardSort('priority');
+
   // Each status column, and the runs its cards are drawn in.
   const columns = useMemo(() => STATUSES.map(status => {
-    const columnTasks = list.filter(t => t.status === status.key).sort(compareByPosition);
-    return { status, tasks: columnTasks, runs: clusterTasks(columnTasks, clusterBy) };
-  }), [list, clusterBy]);
+    const columnTasks = list.filter(t => t.status === status.key).sort(sort);
+    return { status, tasks: columnTasks, runs: clusterTasks(columnTasks, clusterBy, { sort }) };
+  }), [list, clusterBy, sort]);
 
   const handleDragStart = useCallback((event) => {
     setActiveId(event.active.id);
@@ -179,16 +191,19 @@ export default function TaskBoardView({
     if (shouldRevert || !itemsToSave?.length) return;
 
     /*
-      Two cases where a within-column drag doesn't mean anything, and only the
+      Three cases where a within-column drag doesn't mean anything, and only the
       moves that crossed into another status are saved:
 
         · the column is GROUPED, so its order is the grouping's, not yours, and a
           within-column drag would be undone by the next render anyway;
+        · it is SORTED, which is the same thing said about the order rather than
+          about the runs: a card dropped above another one springs back to where
+          its due date puts it;
         · the view isn't `reorderable`, because it is holding a slice of the
           list and can't renumber it without disturbing the rows it isn't
           showing.
     */
-    if (clusterBy || !reorderable) {
+    if (clusterBy || imposed || !reorderable) {
       let crossed = itemsToSave.filter(item => item.status !== undefined);
       if (!crossed.length) return;
       // A slice can't be trusted with positions at all, not even the ones that
@@ -201,7 +216,7 @@ export default function TaskBoardView({
       return;
     }
     onDragCommit(settled, itemsToSave);
-  }, [draftTasks, tasks, clusterBy, reorderable, onDragCommit]);
+  }, [draftTasks, tasks, clusterBy, imposed, reorderable, onDragCommit]);
 
   const handleDragCancel = useCallback(() => {
     setActiveId(null);

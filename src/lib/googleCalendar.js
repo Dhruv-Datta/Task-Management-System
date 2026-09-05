@@ -4,8 +4,8 @@ import { readSetting, writeSetting } from './appSettings.js';
 import { prunePlans as keepRecentDays } from './dayPlan.js';
 import { DAY_WINDOW_END, MINUTES_PER_DAY, addDaysISO, dayClock, dayMinutes } from './dates.js';
 import {
-  DATE_PROPERTY, MAX_EXTERNAL_EVENTS, TASK_ID_PROPERTY, daySignature, externalFromGoogle,
-  itemSignature, normalizeLabels,
+  DATE_PROPERTY, MAX_DESCRIPTION, MAX_EXTERNAL_EVENTS, TASK_ID_PROPERTY, daySignature,
+  externalFromGoogle, itemSignature, noteDigest, noteDigestOf, normalizeLabels, withNoteDigest,
 } from './googleEvents.js';
 import { forgetAccessToken, getAccessToken } from './googleAuth.js';
 
@@ -437,6 +437,8 @@ export async function readGoogleDay(supabase, { date, timeZone }) {
 
   const events = [];
   const failed = [];
+  // Our own pushed blocks, kept for their descriptions alone (see below).
+  const blocks = [];
   /*
     The tags, per calendar, so the menu on a Google event offers the labels of
     the calendar it actually lives on. They belong to one calendar each (the id
@@ -453,10 +455,37 @@ export async function readGoogleDay(supabase, { date, timeZone }) {
     const { calendar, labels, items } = result.value;
     labelsByCalendar[calendar.id] = normalizeLabels(Object.values(labels));
     for (const raw of items) {
+      /*
+        Our own blocks are DROPPED from the day — they are already on the
+        timeline, drawn from the task itself — but they are no longer ignored.
+        The description on one is the task's notes as Google now holds them,
+        which may be a sentence you typed into Google Calendar on your phone at
+        the end of the meeting. `externalFromGoogle` still drops it a line
+        below; this only reads it on the way past.
+      */
+      const mine = ownBlock(raw, calendar.id);
+      if (mine) blocks.push(mine);
       const event = externalFromGoogle(raw, { date, timeZone, calendar: { ...calendar, labels }, palette });
       if (event) events.push(event);
     }
   });
+
+  /*
+    And the notes come back. It is done here, inside the read every visit to
+    /today makes, because there is no other moment: nothing else ever looks at
+    the events we wrote, and a description edited in Google would otherwise sit
+    there unseen until the next push quietly overwrote it.
+
+    A failure costs the notes and NOT the day. This is scenery on a page about
+    today; a settings row that would not save must not take your meetings with
+    it.
+  */
+  let notes = [];
+  try {
+    notes = await adoptGoogleNotes(supabase, date, blocks);
+  } catch (err) {
+    console.error('Failed to read notes back out of Google Calendar', err);
+  }
 
   return {
     events: events.slice(0, MAX_EXTERNAL_EVENTS),
@@ -464,6 +493,8 @@ export async function readGoogleDay(supabase, { date, timeZone }) {
     failed,
     labels: labelsByCalendar,
     writeCalendar: writeTags,
+    // The tasks whose notes Google turned out to know better than we did.
+    notes,
   };
 }
 
@@ -557,6 +588,111 @@ export async function readPushState(supabase, date) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// The notes coming back
+// ─────────────────────────────────────────────────────────────────────────────
+
+/*
+  A TASK'S NOTES AND ITS BLOCK'S DESCRIPTION ARE ONE FIELD WITH TWO EDITORS.
+
+  You can type into it here — the detail panel, or the description in a block's
+  own menu — and you can type into it in Google Calendar, on a phone, in the
+  event we put there. Both are the same sentence about the same hour, so the
+  question is never "which copy is right" but "which one MOVED", and that has an
+  exact answer rather than a guess: the digest of what we last pushed, stored
+  beside the event id (see `itemSignature`).
+
+    Google's description matches it   nobody has touched it there. Whatever the
+                                      task says now is the newer text, and it
+                                      goes up on the next push.
+    it does not                       it was edited in Google, and Google's is
+                                      the newer text. It is adopted into the
+                                      task's notes, and the stored digest moves
+                                      with it — so the day does not then read as
+                                      unsent and offer to push the same words
+                                      back at the calendar they came from.
+
+  The one thing that is never adopted is a description we can only see PART of
+  (MAX_DESCRIPTION). Taking a truncated copy into the notes would delete the
+  rest of it on the next push, which is the same rule the block menu already
+  follows when it refuses to edit one.
+
+  The task is written FIRST and the digest second. That order is the whole
+  safety of it: a crash between them re-reads as "still changed" and adopts the
+  same text again, where the reverse order would lose the note and then send the
+  old one back over it.
+*/
+
+/** One of our own events, as the pull-back needs it — or null for anyone else's. */
+function ownBlock(raw, calendarId) {
+  if (!raw || raw.status === 'cancelled') return null;
+  const stamp = raw.extendedProperties?.private || {};
+  const taskId = stamp[TASK_ID_PROPERTY];
+  if (!taskId) return null;
+  return {
+    taskId: String(taskId),
+    calendarId: String(calendarId),
+    // Which day we wrote it for. The read window is a day either side of the
+    // one being drawn, so yesterday's block for the same task is in these
+    // items too, and it is not this day's note.
+    date: String(stamp[DATE_PROPERTY] || ''),
+    description: String(raw.description || ''),
+  };
+}
+
+/**
+ * Notes edited in Google Calendar itself, taken back into their tasks.
+ *
+ * Returns the rows it wrote (whole, so the browser can adopt their new
+ * `version` as well as their words), and an empty list — cheaply, without
+ * touching the database — on the ordinary day where nothing was edited there.
+ */
+export async function adoptGoogleNotes(supabase, date, blocks) {
+  if (!Array.isArray(blocks) || blocks.length === 0) return [];
+
+  const blob = await readPushed(supabase);
+  const entry = dayEntry(blob, date);
+  if (Object.keys(entry.events).length === 0) return [];
+
+  const changed = [];
+  for (const block of blocks) {
+    const known = entry.events[block.taskId];
+    if (!known?.eventId) continue;
+    // The event we wrote for THIS day, in the calendar we wrote it to. A copy
+    // left behind in a calendar we no longer write to is not the block's
+    // description; it is litter, and the next push removes it.
+    if (block.date !== date || entryCalendar(known) !== block.calendarId) continue;
+    if (block.description.length > MAX_DESCRIPTION) continue;
+    const digest = noteDigest(block.description);
+    if (digest === noteDigestOf(known.sig)) continue;
+    changed.push({ ...block, digest });
+  }
+  if (changed.length === 0) return [];
+
+  const next = { ...entry.events };
+  const rows = [];
+  for (const item of changed) {
+    const { data, error } = await supabase
+      .from('tasks')
+      .update({ notes: item.description })
+      .eq('id', item.taskId)
+      .select('*')
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    // The task is gone and its event outlived it. Nothing to adopt into, and
+    // nothing to record: the next push takes the block out of the calendar.
+    if (!data) continue;
+    rows.push(data);
+    next[item.taskId] = { ...next[item.taskId], sig: withNoteDigest(next[item.taskId].sig, item.digest) };
+  }
+
+  if (rows.length > 0) {
+    blob[date] = { at: entry.at, events: next };
+    await writeSetting(supabase, PUSHED_KEY, blob);
+  }
+  return rows;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Writing
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -598,14 +734,23 @@ function blockTimes(start, minutes, { date, timeZone }) {
 
 function eventBody(item, { date, timeZone }) {
   /*
-    The title, the time, and nothing else. No description: an event whose whole
-    content is the app that made it is a line of noise in the one place you look
-    while you are trying to read your day, and it is repeated on every block. If
-    you want to know where a block came from, it is red and it is in its own
-    calendar, which says it without spending a line to do so.
+    THE DESCRIPTION IS THE TASK'S NOTES. Not a copy kept in step with them —
+    the same field, written where you will actually read it, so a note typed on
+    the detail panel is under the block on your phone at eleven o'clock.
+
+    It is sent even when it is EMPTY, and that is the half that is easy to get
+    wrong: a PATCH that simply stops mentioning the field leaves whatever Google
+    is holding exactly where it is, so a note you deleted would live on in your
+    calendar forever. '' is the instruction, and it travels.
+
+    What still does not go is a line saying which app wrote this. An event whose
+    content is the machine that made it is noise repeated on every block, in the
+    one place you look while trying to read your day — and the block is red, in
+    its own calendar, which says the same thing without spending a line.
   */
   return {
     summary: item.title,
+    description: item.notes || '',
     /*
       THE COLOUR, said in whichever of Google's two vocabularies applies.
 

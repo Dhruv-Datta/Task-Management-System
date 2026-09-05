@@ -690,9 +690,74 @@ export function compareTasks(a, b) {
   return (a.position ?? 0) - (b.position ?? 0);
 }
 
+/**
+ * Deadline order: the same rules with the top two swapped, so the soonest date
+ * leads and priority only settles a tie.
+ *
+ * Undated work sorts LAST rather than first. A task with no date is not due in
+ * the year 9999; it is a thing with no deadline at all, and the whole point of
+ * reading a list this way is to see what is closing in — which puts "no date"
+ * at the bottom, where you look when the dated work is done.
+ *
+ * Finished tasks still sink first, before the dates are read: a deadline you
+ * have already met is not a deadline, and a list that opened with last week's
+ * completed work at the top would be answering a different question.
+ */
+export function compareByDueDate(a, b) {
+  if (a.done !== b.done) return a.done ? 1 : -1;
+  const da = a.due_date || '9999-12-31';
+  const db = b.due_date || '9999-12-31';
+  if (da !== db) return da < db ? -1 : 1;
+  const pa = PRIORITY_RANK[a.priority] ?? 9;
+  const pb = PRIORITY_RANK[b.priority] ?? 9;
+  if (pa !== pb) return pa - pb;
+  return (a.position ?? 0) - (b.position ?? 0);
+}
+
 /** Manual order: what drag & drop maintains inside a status column. */
 export function compareByPosition(a, b) {
   return (a.position ?? 0) - (b.position ?? 0) || compareTasks(a, b);
+}
+
+/*
+  WHICH ORDER YOUR WORK READS IN, as a choice rather than a constant.
+
+  Both orders use all the same facts and disagree only about which one leads,
+  because they answer two different questions people genuinely alternate
+  between: "what matters most" and "what is due first". Anything more than those
+  two would be a menu of ways to sort a list rather than a way to read one.
+
+  Grouping is left alone by this: sections and columns are MEMBERSHIP, this is
+  the order inside them, so "by list, soonest first" is a sentence you can say.
+
+  ONE CHOICE, TWO VIEWS, and the default means something different in each —
+  which is not a fudge, it is what "the order I have not asked to change" IS in
+  each of them. The list has never had a manual order to keep, so its default is
+  priority; a board column is in the order you dragged its cards into, and
+  calling that "by priority" would be a lie about your own arrangement. So the
+  key is the same, the comparator is not, and each view names it in its own
+  words (`taskSort` / `boardSort`).
+*/
+export const SORT_BY = [
+  { key: 'priority', label: 'Priority' },
+  { key: 'due', label: 'Due date' },
+];
+
+/** The list's comparator for an order key. Anything unknown is the default. */
+export function taskSort(key) {
+  return key === 'due' ? compareByDueDate : compareTasks;
+}
+
+/**
+ * The board's, where the default is the order you dragged the cards into.
+ *
+ * Choosing one takes manual ordering away for as long as it is on, exactly as
+ * grouping a column already does: a drop that the next render would undo is
+ * worse than a drop that does not move. The card still crosses into another
+ * status — that is a field on the task, not a place in a list.
+ */
+export function boardSort(key) {
+  return key === 'due' ? compareByDueDate : compareByPosition;
 }
 
 export const GROUP_BY = [
