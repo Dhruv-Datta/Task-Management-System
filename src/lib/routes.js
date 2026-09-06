@@ -22,8 +22,20 @@ export const ROUTES = {
 /*
   Where the app opens, and where `/` sends you.
 
-  The overview rather than the task list: the first question on opening a task
-  app is "what am I doing today", and only after answering it do you go to a
-  particular list to work.
+  THE INBOX, on its capture stage: one box, cursor in it, nothing asked.
+
+  It used to be /today, on the reasoning that the first question on opening a
+  task app is "what am I doing today". That is the right first question when you
+  SAT DOWN to use the app. But most openings are not that — something occurred
+  to you and you reached for your phone — and for those, any landing page that
+  is not a text box is a page you have to get past before you can write the
+  thought down, which is how thoughts get lost.
+
+  Planning a day is a thing you go to on purpose, and it is one tap away in the
+  bar. Catching a thought is not, so it is what the app opens holding.
+
+  NOT the same thing as "where the Google Calendar flow comes back to": that is
+  /today by name (see api/google/*), because it means the page with the calendar
+  on it, and it must not follow this constant around.
 */
-export const HOME_PATH = ROUTES.today;
+export const HOME_PATH = ROUTES.inbox;

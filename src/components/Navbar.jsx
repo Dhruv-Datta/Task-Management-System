@@ -8,6 +8,7 @@ import { useAuth } from '@/lib/AuthContext';
 import { useTaskView } from '@/lib/taskView';
 import { useInboxCount } from '@/lib/inboxCount';
 import { NAV_AREAS, TASK_VIEWS, areaForPath } from '@/lib/navigation';
+import { HOME_PATH } from '@/lib/routes';
 
 /*
   The app bar. It does two things, and keeps them visibly apart.
@@ -150,8 +151,8 @@ export default function Navbar() {
     >
       <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-12 h-16 sm:h-20 flex items-center gap-3 sm:gap-6">
         <Link
-          href="/today"
-          aria-label="Tasks"
+          href={HOME_PATH}
+          aria-label="Home"
           className="hidden sm:flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 text-white shadow-sm shadow-emerald-500/25 no-underline shrink-0 transition-transform duration-150 hover:scale-105"
         >
           <CheckCircle2 size={21} strokeWidth={2.5} />

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/db';
-import { HOME_PATH, ROUTES } from '@/lib/routes';
+import { ROUTES } from '@/lib/routes';
 import {
   STATE_COOKIE_MAX_AGE, STATE_COOKIE_NAME, consentUrl, isGoogleConfigured, randomState,
   redirectUriFor,
@@ -36,11 +36,11 @@ export async function GET(request) {
   */
   if (!(await getSession())) {
     const login = new URL(ROUTES.login, request.nextUrl.origin);
-    login.searchParams.set('next', HOME_PATH);
+    login.searchParams.set('next', ROUTES.today);
     return NextResponse.redirect(login);
   }
 
-  const back = new URL(HOME_PATH, request.nextUrl.origin);
+  const back = new URL(ROUTES.today, request.nextUrl.origin);
 
   if (!isGoogleConfigured()) {
     back.searchParams.set('google', 'unconfigured');

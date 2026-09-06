@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getDb, getSession } from '@/lib/db';
-import { HOME_PATH, ROUTES } from '@/lib/routes';
+import { ROUTES } from '@/lib/routes';
 import {
   GOOGLE_SCOPES, STATE_COOKIE_NAME, exchangeCode, isGoogleConfigured, readConnection,
   redirectUriFor, writeConnection,
@@ -20,7 +20,7 @@ import {
 */
 
 function back(request, status) {
-  const url = new URL(HOME_PATH, request.nextUrl.origin);
+  const url = new URL(ROUTES.today, request.nextUrl.origin);
   url.searchParams.set('google', status);
   return url;
 }
@@ -37,7 +37,7 @@ export async function GET(request) {
   // is the only route back from here, so that is where this leads.
   if (!(await getSession())) {
     const login = new URL(ROUTES.login, request.nextUrl.origin);
-    login.searchParams.set('next', HOME_PATH);
+    login.searchParams.set('next', ROUTES.today);
     return clearState(NextResponse.redirect(login));
   }
 
