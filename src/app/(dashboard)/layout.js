@@ -6,7 +6,8 @@ export default function DashboardLayout({ children }) {
     <AuthGate>
       <div className="min-h-screen bg-white">
         <Navbar />
-        <main className="pt-24">{children}</main>
+        {/* Clears the bar, which is shorter on a phone than on a desktop. */}
+        <main className="pt-20 sm:pt-24">{children}</main>
       </div>
     </AuthGate>
   );

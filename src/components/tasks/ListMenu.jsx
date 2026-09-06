@@ -37,7 +37,7 @@ import { DndContext, PointerSensor, closestCenter, useDroppable, useSensor, useS
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { listTree } from '@/lib/tasks';
-import { MenuPortal } from './TaskPickers';
+import { LIST_MENU_HEIGHT, MenuPortal } from './TaskPickers';
 
 // Droppable ids have to be distinguishable from list ids, because a drop is
 // either "beside this list" or "into this folder" and they are handled
@@ -305,7 +305,7 @@ export default function ListMenu({
       </button>
 
       {open && (
-        <MenuPortal anchorRef={anchorRef} onClose={close} width={300} maxHeight={520}>
+        <MenuPortal anchorRef={anchorRef} onClose={close} width={300} maxHeight={LIST_MENU_HEIGHT} fit={LIST_MENU_HEIGHT}>
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}

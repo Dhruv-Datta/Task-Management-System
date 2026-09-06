@@ -57,6 +57,19 @@ body {
   color: #065f46;
 }
 
+/* ── A scroller with no visible bar ───────────────────────────────
+   For strips that only scroll on a narrow screen and would otherwise
+   gain a permanent gutter for a bar nobody drags: the app bar's tabs,
+   for one. The content still scrolls by touch, wheel and keyboard. */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 /* ── The sign-in screen's animated background ─────────────────── */
 
 @keyframes gradient-shift {

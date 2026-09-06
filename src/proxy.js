@@ -92,6 +92,7 @@ export const config = {
     // Gated page routes. `:path*` also matches the bare route. Keep in sync with
     // NAV_AREAS in src/lib/navigation.js. An area missing from this list is a
     // page anyone can load without signing in.
+    '/inbox/:path*',
     '/today/:path*',
     '/tasks/:path*',
   ],

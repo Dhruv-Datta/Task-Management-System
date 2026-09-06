@@ -118,6 +118,18 @@ CREATE TABLE IF NOT EXISTS public.tasks (
 
   -- Which list this belongs to. Plain text, matching an id in the `task_lists`
   -- app_settings blob: a list is not a table, so creating one is one JSON write.
+  --
+  -- ONE ID IS RESERVED: 'inbox'. It is the list an unfiled thought sits in
+  -- between being captured on /inbox and being filed there (src/lib/inbox.js),
+  -- and it is never in `task_lists`, so it appears in no switcher and can never
+  -- be created, renamed or deleted by hand. /api/tasks EXCLUDES it from every
+  -- read that does not ask for it by name, which is what keeps a half-formed
+  -- thought out of the board, the calendar and the planned day.
+  --
+  -- So: rows here with list_id = 'inbox' are thoughts, not tasks. Filing one is
+  -- an ordinary UPDATE of this column to a real list id, and there is no second
+  -- flag to keep in step with it. NO SCHEMA CHANGE WAS NEEDED FOR ANY OF THIS,
+  -- which is the reason it was built this way: this file is applied by hand.
   list_id       text NOT NULL DEFAULT 'default',
 
   -- Optimistic concurrency: bumped by a trigger on every UPDATE, so two tabs

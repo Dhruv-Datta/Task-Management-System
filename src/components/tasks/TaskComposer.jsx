@@ -28,12 +28,12 @@ import { useEffect, useState } from 'react';
 import { CalendarCheck, CalendarDays, Timer, X } from 'lucide-react';
 import {
   DEFAULT_PRIORITY, DEFAULT_STATUS, addSubtask, estimateMeta, normalizeDailyPriority,
-  priorityMeta, removeSubtask, subtaskProgress, toggleSubtask, updateSubtask,
+  removeSubtask, subtaskProgress, toggleSubtask, updateSubtask,
 } from '@/lib/tasks';
 import { formatDateLong } from '@/lib/dates';
 import {
-  DailyPriorityToggle, DatePicker, EstimatePicker, HardToggle, ListPicker, PriorityIcon,
-  PriorityPicker, StatusChip, StatusPicker,
+  DailyPriorityToggle, DatePicker, EstimatePicker, HardToggle, ListPicker, PriorityBar,
+  StatusChip, StatusPicker,
 } from './TaskPickers';
 import {
   DialogShell, Field, MainColumn, NotesInput, Rail, SectionTitle, SubtaskChecklist, SubtaskCount,
@@ -189,12 +189,7 @@ export default function TaskComposer({ defaults = {}, lists = null, planning = f
           label="Priority"
           trailing={<HardToggle value={hard} onToggle={setHard} size={17} box="rounded-md p-1 -my-1 hover:bg-red-50" />}
         >
-          <PriorityPicker priority={priority} onSelect={setPriority} align="left" full>
-            <Value>
-              <ValueIcon><PriorityIcon priority={priority} size={14} /></ValueIcon>
-              {priorityMeta(priority).label}
-            </Value>
-          </PriorityPicker>
+          <PriorityBar priority={priority} onSelect={setPriority} full />
         </Field>
 
         <Field label="Due">

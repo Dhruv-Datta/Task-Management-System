@@ -34,12 +34,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { CalendarDays, Trash2, X } from 'lucide-react';
 import {
-  addSubtask, priorityMeta, removeSubtask, subtaskProgress, toggleSubtask, updateSubtask,
+  addSubtask, removeSubtask, subtaskProgress, toggleSubtask, updateSubtask,
 } from '@/lib/tasks';
 import { formatDateLong } from '@/lib/dates';
 import {
-  DailyPriorityToggle, DateChip, DatePicker, HardToggle, PriorityIcon,
-  PriorityPicker, StatusChip, StatusPicker,
+  DailyPriorityToggle, DateChip, DatePicker, HardToggle, PriorityBar,
+  StatusChip, StatusPicker,
 } from './TaskPickers';
 import {
   DialogShell, Field, MainColumn, NotesInput, Rail, SectionTitle, SubtaskChecklist, SubtaskCount,
@@ -270,12 +270,7 @@ export default function TaskDetailPanel({ task, list = null, planning = false, o
             />
           )}
         >
-          <PriorityPicker priority={task.priority} onSelect={p => onPatch(task.id, { priority: p })} align="left" full>
-            <Value>
-              <ValueIcon><PriorityIcon priority={task.priority} size={14} /></ValueIcon>
-              {priorityMeta(task.priority).label}
-            </Value>
-          </PriorityPicker>
+          <PriorityBar priority={task.priority} onSelect={p => onPatch(task.id, { priority: p })} full />
         </Field>
 
         <Field label="Due">

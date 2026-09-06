@@ -13,6 +13,7 @@
 */
 
 export const ROUTES = {
+  inbox: '/inbox',
   today: '/today',
   tasks: '/tasks',
   login: '/login',

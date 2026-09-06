@@ -92,8 +92,29 @@ export function useClusterBy() {
   return [clusterBy, clusterByStore.write];
 }
 
+/*
+  THE LIST YOU LAST FILED A THOUGHT INTO.
+
+  Triage is a pass, not a decision per item: nine of the ten things you catch on
+  a Tuesday belong in the same list, so the tenth is the one worth a tap. The
+  card opens on whatever the last one went to, and File is one press.
+
+  Free-form rather than a fixed set, because the value is a list id and the
+  lists are yours. A list since deleted reads as a list that isn't there, which
+  the card falls back out of on its own.
+*/
+const lastFiledListStore = choice('inbox.lastList', value => value || null);
+
 /** What the list reads in order of: 'priority' (the default) or 'due'. */
 export function useSortBy() {
   const sortBy = useSyncExternalStore(sortByStore.subscribe, sortByStore.get, sortByStore.server);
   return [sortBy, sortByStore.write];
+}
+
+/** Which list the inbox's triage card opens on, or `null` before you file one. */
+export function useLastFiledList() {
+  const listId = useSyncExternalStore(
+    lastFiledListStore.subscribe, lastFiledListStore.get, lastFiledListStore.server
+  );
+  return [listId, lastFiledListStore.write];
 }

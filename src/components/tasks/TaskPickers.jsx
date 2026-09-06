@@ -39,6 +39,23 @@ import {
   when all three are decided in one place. They start above the navbar (9999) so
   a dialog is never drawn under it.
 */
+/*
+  HOW TALL A MENU OF YOUR LISTS IS ALLOWED TO GET.
+
+  The generic menu height (MenuPortal's 320) is sized for a picker with four or
+  seven answers in it — a status, a priority, an estimate. A list of LISTS is
+  not that: people keep one per class, per project, per side of their life, and
+  a dozen is ordinary. At 320 a dozen lists scroll, and a menu that scrolls
+  before it has shown you everything makes you hunt for a list you can see the
+  name of in your head.
+
+  So the three menus that draw your lists share this: enough for about fourteen
+  rows before anything scrolls, with room for the "New list…" footer where there
+  is one. MenuPortal still clamps it to the screen it actually has, so on a
+  short window it is the window that decides, not this.
+*/
+export const LIST_MENU_HEIGHT = 560;
+
 export const OVERLAY_Z = {
   drag: 10000,
   dialog: 10010,
@@ -405,6 +422,66 @@ export function PriorityPicker({ priority, onSelect, showLabel = false, align = 
   );
 }
 
+/*
+  THE SAME FOUR LEVELS, ALL ON SCREEN AT ONCE.
+
+  PriorityPicker above is a trigger you press to reveal a menu, and that is the
+  right shape on a card or a row, where the priority is one mark among a dozen
+  competing for the width. In a FORM it is the wrong shape: there are only four
+  answers, they are two characters wide, and a menu that must be opened to find
+  that out costs a press, a jump of focus, and a second press, to set a field
+  you were looking straight at.
+
+  So in the two dialogs, and in the inbox's triage card, priority is this: one
+  recessed group of the same !!! / !! / ! / – the rest of the app writes it as,
+  where the answer is already visible and setting it is one press.
+
+  It runs QUIETEST TO LOUDEST, left to right. PRIORITIES is declared the other
+  way round because that is the order a sorted list wants; read as a bar you
+  slide along, it wants nothing on the left and urgent on the right, so that the
+  group fills up as the answer gets worse.
+
+  `full` is the rail's shape: there every value is a row you can press anywhere
+  along, so the four share the width instead of huddling at the left of it. It
+  also buys the bar a little air top and bottom: it is 36px of solid control
+  where the rail's other values are text on a transparent row, so at the rail's
+  ordinary spacing it sits hard against its own label and the one beneath it.
+
+  It is a size taller on a PHONE, where four marks two characters wide are the
+  smallest thing on the screen you are asked to hit with a thumb. The mouse gets
+  the tighter version back at `sm`.
+*/
+export function PriorityBar({ priority, onSelect, full = false, className = '' }) {
+  const current = priorityMeta(priority).key;
+  return (
+    <div
+      role="group"
+      aria-label="Priority"
+      className={`flex items-center gap-0.5 h-10 sm:h-9 p-1 rounded-xl bg-gray-100 ${full ? 'w-full my-1.5' : 'shrink-0'} ${className}`}
+    >
+      {[...PRIORITIES].reverse().map(p => {
+        const active = p.key === current;
+        return (
+          <button
+            key={p.key}
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onSelect(p.key); }}
+            title={p.label}
+            aria-label={p.label}
+            aria-pressed={active}
+            style={active ? { backgroundColor: p.color } : undefined}
+            className={`h-8 sm:h-7 px-1.5 rounded-lg text-[12.5px] font-bold leading-none transition-colors ${
+              full ? 'flex-1' : 'min-w-[34px] sm:min-w-[30px]'
+            } ${active ? 'text-white shadow-sm' : 'text-gray-400 hover:text-gray-700'}`}
+          >
+            {priorityMarks(p.key)}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── Dates ───────────────────────────────────────────────────────────────────
 
 /*
@@ -732,15 +809,25 @@ function MonthGrid({ value, today, onPick }) {
   );
 }
 
-/** Quick answers, then a month grid on request: when a task is owed. */
-export function DatePicker({ value, onSelect, label = 'Due date', align = 'right', full = false, children }) {
+/*
+  Quick answers, then a month grid on request: when a task is owed.
+
+  `quick` is for the one caller that has already offered Today and Tomorrow as
+  buttons of its own (the inbox's triage card). Passing false drops both rows
+  and the fold with them, and the menu opens straight onto the month, which is
+  the only thing it is being asked for there. Offering the same two answers a
+  second time inside a menu makes that menu look like it holds something the
+  buttons beside it do not.
+*/
+export function DatePicker({
+  value, onSelect, label = 'Due date', align = 'right', full = false, quick = true, children,
+}) {
   const anchorRef = useRef(null);
   const [open, setOpen] = useState(false);
   const today = todayISO();
-  const quick = [
-    { label: 'Today', iso: today },
-    { label: 'Tomorrow', iso: addDaysISO(today, 1) },
-  ];
+  const quickDays = quick
+    ? [{ label: 'Today', iso: today }, { label: 'Tomorrow', iso: addDaysISO(today, 1) }]
+    : [];
   /*
     The grid is FOLDED AWAY until asked for. Most due dates are today or
     tomorrow, and making you look at a whole month to say "tomorrow" is the same
@@ -750,9 +837,10 @@ export function DatePicker({ value, onSelect, label = 'Due date', align = 'right
 
     Already on a date, though, and the month opens with it: you came to move a
     date you can see, and folding it away would hide the very thing you are
-    moving.
+    moving. With no quick answers there is nothing to fold it behind either, so
+    it is simply open.
   */
-  const [showGrid, setShowGrid] = useState(!!value);
+  const [showGrid, setShowGrid] = useState(!quick || !!value);
   const pick = (iso) => { onSelect(iso); setOpen(false); };
   const meta = dateMeta(value, today);
 
@@ -794,8 +882,8 @@ export function DatePicker({ value, onSelect, label = 'Due date', align = 'right
               boxes. Emerald is the calendar's colour for "now" — it marks today
               in the grid below. Picked, a row goes the same solid dark as the
               selected day, so "chosen" looks the same wherever you chose it. */}
-          <div className="flex flex-col gap-1 px-2.5 pb-2">
-            {quick.map(q => {
+          <div className={`flex flex-col gap-1 px-2.5 ${quickDays.length ? 'pb-2' : ''}`}>
+            {quickDays.map(q => {
               const d = fromISODate(q.iso);
               const active = value === q.iso;
               return (
@@ -819,20 +907,23 @@ export function DatePicker({ value, onSelect, label = 'Due date', align = 'right
             })}
           </div>
 
-          {/* The third answer: a date you have to look at. */}
-          <button
-            type="button"
-            onClick={() => setShowGrid(g => !g)}
-            aria-expanded={showGrid}
-            className="flex w-full items-center gap-2 border-t border-gray-100 px-3 py-2 text-[12.5px] font-semibold text-gray-600 hover:bg-gray-50 transition-colors"
-          >
-            <CalendarDays size={14} className="text-gray-400" />
-            Pick a date
-            <ChevronDown size={14} className={`ml-auto text-gray-400 transition-transform ${showGrid ? 'rotate-180' : ''}`} />
-          </button>
+          {/* The third answer: a date you have to look at. Nothing to unfold
+              when the grid is all there is, so the button goes with the rows. */}
+          {quick && (
+            <button
+              type="button"
+              onClick={() => setShowGrid(g => !g)}
+              aria-expanded={showGrid}
+              className="flex w-full items-center gap-2 border-t border-gray-100 px-3 py-2 text-[12.5px] font-semibold text-gray-600 hover:bg-gray-50 transition-colors"
+            >
+              <CalendarDays size={14} className="text-gray-400" />
+              Pick a date
+              <ChevronDown size={14} className={`ml-auto text-gray-400 transition-transform ${showGrid ? 'rotate-180' : ''}`} />
+            </button>
+          )}
 
           {showGrid && (
-            <div className="border-t border-gray-100">
+            <div className={quick ? 'border-t border-gray-100' : ''}>
               <MonthGrid value={value} today={today} onPick={pick} />
             </div>
           )}
@@ -990,7 +1081,14 @@ export function ListPicker({ lists = [], value, onSelect, align = 'left' }) {
         </button>
       </span>
       {open && (
-        <MenuPortal anchorRef={anchorRef} onClose={() => setOpen(false)} align={align} width={210}>
+        <MenuPortal
+          anchorRef={anchorRef}
+          onClose={() => setOpen(false)}
+          align={align}
+          width={210}
+          maxHeight={LIST_MENU_HEIGHT}
+          fit={LIST_MENU_HEIGHT}
+        >
           {lists.map(list => (
             <MenuItem key={list.id} active={list.id === current?.id} onClick={() => { onSelect(list.id); setOpen(false); }}>
               <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: list.color || '#94a3b8' }} />

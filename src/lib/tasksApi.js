@@ -2,6 +2,7 @@
 // all shaping and merging lives in lib/tasks.js so this file stays boring.
 
 import { normalizeTasks } from './tasks.js';
+import { INBOX_LIST_ID } from './inbox.js';
 import { normalizeDayPlan } from './dayPlan.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
@@ -56,6 +57,25 @@ export async function fetchTasks({ listId } = {}) {
   const qs = params.toString();
   const res = await fetch(qs ? `/api/tasks?${qs}` : '/api/tasks');
   return normalizeTasks(await readJsonOrThrow(res));
+}
+
+/*
+  THE INBOX, which is a list you have to ask for by name.
+
+  /api/tasks hides the reserved inbox list from every unscoped read (see the
+  route), so these two are the only way to see an unfiled thought — which is
+  what keeps one out of the board, the calendar and the planned day until it has
+  been filed. The count is a `head` request: the app bar wants a number for its
+  badge and has no use for the rows.
+*/
+export async function fetchInbox() {
+  return fetchTasks({ listId: INBOX_LIST_ID });
+}
+
+export async function fetchInboxCount() {
+  const res = await fetch(`/api/tasks?list_id=${INBOX_LIST_ID}&count=1`);
+  const data = await readJsonOrThrow(res);
+  return Number(data?.count) || 0;
 }
 
 export async function createTask(fields) {
