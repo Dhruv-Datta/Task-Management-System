@@ -1423,7 +1423,7 @@ export default function TodayPage() {
       Same white ground and same container as /tasks: this is another room in
       the same building, not a different app one tab across.
     */
-    <div className="max-w-[1400px] mx-auto px-6 lg:px-12 pt-6 pb-16">
+    <div className="max-w-[1400px] mx-auto px-6 lg:px-12 pb-16">
       {loadError && <div className="mb-4"><LoadError error={loadError} onRetry={() => loadAll()} /></div>}
       {writeError && <WriteError error={writeError} onDismiss={() => setWriteError(null)} />}
       {googleNotice && (
