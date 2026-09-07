@@ -22,8 +22,8 @@ import {
   isCommitmentPushId, isValidTimeZone,
   itemSignature,
   labelColor, noteDigest, noteDigestOf, normalizeExternal, normalizeExternals, normalizeLabelId,
-  blockHeader, normalizeLabels, normalizePushItems, pushSignature, pushTitle, wallClock,
-  withBlockHeader, withNoteDigest, withoutBlockHeader,
+  blockHeader, normalizeLabels, normalizePushItems, pushSignature, pushTitle, timedOnDay,
+  timesOf, wallClock, withBlockHeader, withNoteDigest, withTimes, withoutBlockHeader,
 } from '../src/lib/googleEvents.js';
 import { normalizeTask } from '../src/lib/tasks.js';
 import { addDaysISO } from '../src/lib/dates.js';
@@ -861,4 +861,48 @@ test('the three deadlines that decide the day are words, not dates', () => {
   assert.equal(blockHeader('', addDaysISO(DATE, 4), DATE), '📅 Due Mon, Sep 7');
   // And it still sits beside the list.
   assert.equal(blockHeader('Thesis', DATE, DATE), '📋 Thesis · 📅 DUE TODAY');
+});
+
+/*
+  A block DRAGGED in Google Calendar. The record of what we sent is the only
+  thing that can tell that from a block nobody has touched, so these two — the
+  hour Google now holds, and the hour we last wrote — are what the pull-back
+  compares (see `adoptGoogleEdits` in lib/googleCalendar).
+*/
+test('the hour an event now sits at, in the timeline’s own numbers', () => {
+  const at = (from, to) => timedOnDay(
+    { start: { dateTime: from }, end: { dateTime: to } },
+    { date: '2026-09-03', timeZone: 'America/Chicago' }
+  );
+
+  assert.deepEqual(at('2026-09-03T14:00:00-05:00', '2026-09-03T15:30:00-05:00'), {
+    start: 14 * 60, minutes: 90,
+  });
+  // Past midnight is the bottom of tonight, not the top of a day you have not
+  // started: the day runs to 4am.
+  assert.deepEqual(at('2026-09-04T01:00:00-05:00', '2026-09-04T02:00:00-05:00'), {
+    start: 25 * 60, minutes: 60,
+  });
+  // Dragged off this day altogether, or across the 4am edge: not a move this
+  // side can express, so it is not adopted at all.
+  assert.equal(at('2026-09-04T09:00:00-05:00', '2026-09-04T10:00:00-05:00'), null);
+  assert.equal(at('2026-09-04T03:30:00-05:00', '2026-09-04T05:00:00-05:00'), null);
+  assert.equal(at('2026-09-02T09:00:00-05:00', '2026-09-02T10:00:00-05:00'), null);
+  // An all-day event has no hour to have been moved to.
+  assert.equal(timedOnDay({ start: { date: '2026-09-03' } }, { date: '2026-09-03', timeZone: 'UTC' }), null);
+});
+
+test('the signature carries the hour, and gives it back', () => {
+  const sig = itemSignature({ start: '09:00', minutes: 60, labelId: null, notes: 'x', title: 'Essay' });
+  assert.deepEqual(timesOf(sig), { start: '09:00', startMinutes: 540, minutes: 60 });
+
+  // Moved, and the record moves with it — or the day reads as changed the
+  // moment it settles and sends the block straight back.
+  const after = withTimes(sig, '10:30', 45);
+  assert.deepEqual(timesOf(after), { start: '10:30', startMinutes: 630, minutes: 45 });
+  assert.equal(after, itemSignature({ start: '10:30', minutes: 45, labelId: null, notes: 'x', title: 'Essay' }));
+
+  // The small hours are the end of the day, both ways round.
+  assert.equal(timesOf(itemSignature({ start: '01:00', minutes: 30, notes: '' })).startMinutes, 25 * 60);
+  assert.equal(timesOf('rubbish'), null);
 });

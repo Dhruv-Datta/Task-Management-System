@@ -65,7 +65,7 @@ function disconnected(date, reason) {
     // and looking broken.
     labels: {},
     writeCalendar: null,
-    notes: [],
+    adopted: [],
     commitments: null,
     pushed: { at: null, count: 0, signature: '' },
     reason,
@@ -92,7 +92,7 @@ export async function GET(request) {
         In this order, and not in parallel, for one reason: reading the day is
         also what notices a description edited in Google Calendar itself, and
         adopting one MOVES the record of what we last sent (see
-        `adoptGoogleNotes`). Asked at the same moment, `readPushState` would
+        `adoptGoogleEdits`). Asked at the same moment, `readPushState` would
         answer from the record as it was a moment ago, and /today would offer to
         send a day that is already sitting in the calendar it came from.
       */
@@ -113,10 +113,11 @@ export async function GET(request) {
         // a task block or a commitment of yours may take.
         labels: day.labels,
         writeCalendar: day.writeCalendar,
-        // The tasks whose notes were edited in Google Calendar rather than
-        // here, already adopted and handed back whole, so the page can put the
-        // words on screen without re-reading the whole task list for them.
-        notes: day.notes,
+        // The tasks edited in Google Calendar rather than here — a description
+        // typed onto a block, an hour it was dragged to — already adopted and
+        // handed back whole, so the page can put them on screen without
+        // re-reading the whole task list.
+        adopted: day.adopted,
         // And the other direction of the same idea: the tasks whose blocks you
         // deleted in Google Calendar, already put back to unplaced here, handed
         // back whole so the timeline can drop them without a re-read.
@@ -191,7 +192,7 @@ export async function POST(request) {
       failed: day.failed,
       labels: day.labels,
       writeCalendar: day.writeCalendar,
-      notes: day.notes,
+      adopted: day.adopted,
       commitments: day.commitments,
     });
   });

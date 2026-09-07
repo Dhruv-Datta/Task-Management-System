@@ -313,10 +313,16 @@ export default function TodayPage() {
     rewrite a task twice over:
 
       the NOTES     a task's notes and its block's description are one field
-                    (see `adoptGoogleNotes`), so it can be edited from Google
+                    (see `adoptGoogleEdits`), so it can be edited from Google
                     Calendar as well as from here — on a phone, in the event we
                     put there — and the server adopts such an edit on its way
                     past.
+      the HOUR      a block DRAGGED in Google Calendar is a block you moved, and
+                    the same pass brings the new time back: `scheduled_start`
+                    and `scheduled_minutes` become what Google now holds, and
+                    the timeline redraws it where you put it. The push used to
+                    win that argument by default, which meant a move made on a
+                    phone was silently undone by the next thing you did here.
       the BLOCK     a block you DELETED in Google Calendar is a block that is no
                     longer happening (see `reapDeletedBlocks`), so the server
                     puts the task back to unplaced and the timeline drops it.
@@ -386,7 +392,7 @@ export default function TodayPage() {
         calendar: day.pushed?.calendar || null,
       }));
       if (day.connected) {
-        adoptRows(day.notes);
+        adoptRows(day.adopted);
         adoptRows(day.unplaced);
         // And the day's own commitments, when Google turned out to have changed
         // one. Null on every ordinary read: keep what we have.
@@ -772,7 +778,7 @@ export default function TodayPage() {
         error: null,
       });
       setGoogleNotice(null);
-      adoptRows(res.notes);
+      adoptRows(res.adopted);
       if (res.commitments) setEvents(res.commitments);
       setExternal(res.events || []);
       setLabels({ byCalendar: res.labels || {}, write: res.writeCalendar || null });

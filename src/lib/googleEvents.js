@@ -93,7 +93,7 @@ export const DATE_PROPERTY = 'tasksAppDate';
   prefix is what the round trip is built on: everything Google sends back is
   keyed by it, and the two halves of the day are written to two different
   places — a task to its row, a commitment to the day's blob (see
-  `adoptGoogleNotes` and `reapDeletedBlocks` in lib/googleCalendar). Guessing
+  `adoptGoogleEdits` and `reapDeletedBlocks` in lib/googleCalendar). Guessing
   from the shape of an id would put a commitment's key into a `.eq('id', …)`
   against a uuid column; "it starts with event_" is a fact about today's id
   generator, where this is a promise.
@@ -245,6 +245,45 @@ export function wallClock(instant, timeZone) {
 // ─────────────────────────────────────────────────────────────────────────────
 // One Google event → one thing on the day
 // ─────────────────────────────────────────────────────────────────────────────
+
+/*
+  A WALL CLOCK, PLACED ON ONE DAY'S TIMELINE: minutes from midnight of `date`,
+  running past 1440 because the day does. Half past one tomorrow morning is
+  25:30 here, and it belongs at the bottom of tonight rather than at the top of
+  a day you have not started — which is the whole reason the window ends at 4am
+  (see DAY_ANCHOR_MINUTES in lib/dates).
+
+  Anything earlier than this date is a negative, anything later is past the end
+  of the window, and both are for the caller to clip or drop.
+*/
+function placeOnDay(wall, date) {
+  if (wall.date === date) return wall.minutes;
+  if (wall.date === addDaysISO(date, 1)) return MINUTES_PER_DAY + wall.minutes;
+  return wall.date < date ? -1 : DAY_WINDOW_END + 1;
+}
+
+/**
+ * Where a Google event sits on this day, for one of OUR OWN blocks read back —
+ * `{ start, minutes }` in the same numbers the timeline is drawn in.
+ *
+ * `null` unless the whole event falls inside this day's window. A block dragged
+ * into tomorrow in Google, or across the 4am edge, is not a move this side can
+ * express: our copy belongs to a date, and a date is the one thing the drag did
+ * not change here. Better to leave it alone (the next push puts it back where
+ * this day says it is) than to adopt a start clipped to the edge of the window
+ * and call that where you moved it to.
+ */
+export function timedOnDay(raw, { date, timeZone }) {
+  if (!raw?.start?.dateTime || !raw?.end?.dateTime) return null;
+  const startAt = new Date(raw.start.dateTime);
+  const endAt = new Date(raw.end.dateTime);
+  if (Number.isNaN(startAt.getTime()) || Number.isNaN(endAt.getTime())) return null;
+
+  const start = placeOnDay(wallClock(startAt, timeZone), date);
+  const end = placeOnDay(wallClock(endAt, timeZone), date);
+  if (start < 0 || end > DAY_WINDOW_END || end <= start) return null;
+  return { start, minutes: end - start };
+}
 
 /*
   THE COLOUR, which is half of what a real calendar on this timeline is for: an
@@ -535,15 +574,8 @@ export function externalFromGoogle(raw, { date, timeZone, calendar = {}, palette
     past the end of the window, and both are then either clipped or dropped by
     the overlap test below.
   */
-  const nextDate = addDaysISO(date, 1);
-  const place = (wall) => {
-    if (wall.date === date) return wall.minutes;
-    if (wall.date === nextDate) return MINUTES_PER_DAY + wall.minutes;
-    return wall.date < date ? -1 : DAY_WINDOW_END + 1;
-  };
-
-  const startsAt = place(wallClock(startAt, timeZone));
-  const endsAt = place(wallClock(endAt, timeZone));
+  const startsAt = placeOnDay(wallClock(startAt, timeZone), date);
+  const endsAt = placeOnDay(wallClock(endAt, timeZone), date);
 
   // Not on this day at all. `endsAt <= 0` also disposes of the event that ends
   // at the stroke of this midnight: that is the END of yesterday, not a
@@ -686,7 +718,7 @@ export const MUST_DO_STAR = '⭐';
   start where a paragraph starts.
 
   AND IT COMES BACK OFF. The description is the task's notes and the two are
-  edited from both ends (see `adoptGoogleNotes`), so a description read back out
+  edited from both ends (see `adoptGoogleEdits`), so a description read back out
   of Google has to be the notes ALONE — otherwise the header is adopted into the
   task, and the next push puts a second one in front of it. `withoutBlockHeader`
   is the exact inverse, and it is deliberately shape-based rather than
@@ -927,7 +959,7 @@ export function dayPushItems(tasks, date, listName = null, events = []) {
   each of eight blocks would be the whole blob. A digest answers the only
   question ever asked of that text, and answers it in both directions: "is this
   what we sent?", of the day on screen, and of a description read back out of
-  Google (see `adoptGoogleNotes`).
+  Google (see `adoptGoogleEdits`).
 
   FNV-1a, twice, over different seeds. Not a security boundary — nobody is
   attacking their own calendar — but one 32-bit hash over prose collides often
@@ -968,7 +1000,7 @@ export function itemSignature(item) {
  * The same signature, with the note it describes replaced.
  *
  * A description edited in Google Calendar itself is adopted into the task's
- * notes rather than overwritten (see `adoptGoogleNotes`), and after that Google
+ * notes rather than overwritten (see `adoptGoogleEdits`), and after that Google
  * holds exactly what the browser is about to compute a signature for — so the
  * record of what we sent has to move with it, or /today would offer to send a
  * day that is already there. The format lives here and not at the call site,
@@ -981,6 +1013,37 @@ export function withNoteDigest(signature, digest) {
   const parts = String(signature || '').split('|');
   if (parts.length < 4) return signature;
   parts[2] = digest;
+  return parts.join('|');
+}
+
+/**
+ * The hour we last sent, out of the signature we stored — `{ start, minutes }`,
+ * where `start` is the wall clock as it was written ('09:00').
+ *
+ * This is what makes "somebody moved it in Google" a question with an answer:
+ * the event as Google now holds it, against the event as we last left it. Equal,
+ * nothing happened; different, the calendar knows something this side does not.
+ */
+export function timesOf(signature) {
+  const [head] = String(signature || '').split('|');
+  const [start, length] = String(head || '').split('+');
+  const at = dayMinutes(start);
+  const minutes = Number(length);
+  if (at === null || !Number.isFinite(minutes) || minutes <= 0) return null;
+  return { start, startMinutes: at, minutes };
+}
+
+/**
+ * The same signature with the hour it describes replaced — the counterpart of
+ * `withNoteDigest`, and needed for the same reason: once a move made in Google
+ * has been adopted here, the record of what we sent has to move with it, or the
+ * page offers to send a day that is already sitting in the calendar it came
+ * from.
+ */
+export function withTimes(signature, start, minutes) {
+  const parts = String(signature || '').split('|');
+  if (parts.length < 4) return signature;
+  parts[0] = `${start}+${minutes}`;
   return parts.join('|');
 }
 

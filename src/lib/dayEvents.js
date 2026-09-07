@@ -15,7 +15,7 @@ import 'server-only';
   pruning. /api/events is the obvious one. The other is Google Calendar: a
   commitment goes up with the rest of the day, which means a description typed
   onto it in Google comes back into it, and an event deleted there deletes it
-  here (see `adoptGoogleNotes` and `reapDeletedBlocks` in lib/googleCalendar).
+  here (see `adoptGoogleEdits` and `reapDeletedBlocks` in lib/googleCalendar).
   Two copies of "which settings key, pruned how" is exactly the kind of thing
   that stays in agreement until the day it doesn't.
 */
