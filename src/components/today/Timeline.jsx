@@ -291,7 +291,7 @@ function faceTextOf(block, limit) {
   block already shares.
 */
 function BlockFace({
-  title, start, minutes, type, star = false, strong = false, action = null,
+  title, start, minutes, type, star = false, done = false, strong = false, action = null,
   description = '', lines = 0,
 }) {
   const range = formatClockRange(start, minutes);
@@ -307,7 +307,7 @@ function BlockFace({
         {!strong && mark}
         <span className={`flex-1 min-w-0 truncate ${type.title} ${
           strong ? 'font-bold tabular-nums' : 'font-semibold'
-        }`}>
+        } ${done && !strong ? 'line-through' : ''}`}>
           {strong ? range : `${title}, ${formatClock(start)}`}
         </span>
         {action}
@@ -319,7 +319,9 @@ function BlockFace({
     <>
       <div className="flex items-start gap-1">
         {mark}
-        <span className={`flex-1 min-w-0 font-semibold truncate ${type.title}`}>{title}</span>
+        <span className={`flex-1 min-w-0 font-semibold truncate ${type.title} ${
+          done ? 'line-through' : ''
+        }`}>{title}</span>
         {action}
       </div>
       <div
@@ -482,6 +484,14 @@ function Block({
 
   const fill = fillFor(block, labels);
   const ink = inkOn(fill);
+  /*
+    FINISHED, AND STILL THERE. A block you have ticked off is not deleted — the
+    hour happened, and a day that quietly erased what you did as you did it
+    would end up empty by the evening, which is the opposite of a record. So it
+    stays where it is, struck through and faded: the same two marks a completed
+    row wears everywhere else in this app.
+  */
+  const done = !!block.done;
 
   /*
     An hour buys the first line of the description; every fourteen pixels after
@@ -627,7 +637,9 @@ function Block({
       }}
       className={`group/block overflow-hidden rounded-md select-none shadow-sm transition-shadow hover:shadow-md ${type.pad} ${
         movable ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'
-      } ${moving || pending ? 'shadow-xl ring-2 ring-white/80' : ''}`}
+      } ${moving || pending ? 'shadow-xl ring-2 ring-white/80' : ''} ${
+        done && !moving ? 'opacity-60' : ''
+      }`}
     >
       <BlockFace
         title={block.title}
@@ -635,6 +647,7 @@ function Block({
         minutes={minutes}
         type={type}
         star={!!block.mustDo}
+        done={done}
         strong={moving}
         description={description}
         lines={descriptionLines}
@@ -801,7 +814,8 @@ function menuSubtitle(block) {
 export default function Timeline({
   timeline, nowMinutes, canvasRef,
   onOpenTask, onUnschedule, onPlaceTask, onPlaceEvent,
-  onPlaceExternal, onCreateEvent, onTagBlock, onRenameBlock, onDescribeBlock, onDeleteBlock,
+  onPlaceExternal, onCreateEvent, onStatusBlock, onTagBlock, onRenameBlock, onDescribeBlock,
+  onDeleteBlock,
   tags = NO_TAGS,
   dragPreview = null, googleControl = null,
 }) {
@@ -1365,6 +1379,15 @@ export default function Timeline({
               happens on Add to the day carries all of them at once. The same
               menu, the same fields, one save instead of four.
             */
+            /*
+              How far along the work is, from the block that IS the work. Tasks
+              only: a commitment is not something you are part-way through, and
+              somebody else's meeting is not yours to be part-way through.
+            */
+            status={menuBlock.kind === 'task' ? menuBlock.task?.status : null}
+            onStatus={menuBlock.kind === 'task'
+              ? status => onStatusBlock(menuBlock, status)
+              : null}
             onTag={aboutPending
               ? labelId => setPending(p => (p ? { ...p, labelId } : p))
               : labelId => onTagBlock(menuBlock, labelId)}

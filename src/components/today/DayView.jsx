@@ -105,7 +105,7 @@ function DayTaskRow({ task, list, onPatch, onOpen }) {
 export default function DayView({
   day, dateLine, summary, timeline, nowMinutes, listFor, canvasRef, refreshing,
   dragPreview, onRefresh, onReplan, onPatch, onOpen, onUnschedule, onPlaceTask, onPlaceEvent,
-  onPlaceExternal, onCreateEvent, onTagBlock, onRenameBlock, onDescribeBlock,
+  onPlaceExternal, onCreateEvent, onStatusBlock, onTagBlock, onRenameBlock, onDescribeBlock,
   onDeleteBlock, tags,
   googleControl = null, googleSync = null,
 }) {
@@ -197,6 +197,7 @@ export default function DayView({
           onPlaceEvent={onPlaceEvent}
           onPlaceExternal={onPlaceExternal}
           onCreateEvent={onCreateEvent}
+          onStatusBlock={onStatusBlock}
           onTagBlock={onTagBlock}
           onRenameBlock={onRenameBlock}
           onDescribeBlock={onDescribeBlock}

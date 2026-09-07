@@ -43,7 +43,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, Tag, Trash2 } from 'lucide-react';
-import { OVERLAY_Z } from '@/components/tasks/TaskPickers';
+import { OVERLAY_Z, StatusDot } from '@/components/tasks/TaskPickers';
+import { STATUSES, statusMeta } from '@/lib/tasks';
 import { inkOn } from '@/lib/colors';
 
 const WIDTH = 268;
@@ -88,6 +89,45 @@ function TagPill({ label, selected, onSelect }) {
 const FIELD = 'w-full text-gray-800 bg-white border border-gray-300 rounded-lg px-2 py-1 outline-none '
   + 'focus:ring-1 focus:ring-emerald-500/40 resize-none';
 
+/*
+  HOW FAR ALONG IT IS, on the block.
+
+  A calendar is where you find out that the hour you set aside is happening now,
+  and "started it" / "finished it" is the thing you want to say at exactly that
+  moment — from the block you are looking at, not from the task list you would
+  have to go and find. So the four statuses sit here, drawn the way the tags
+  below them are: the whole row, one press, the current one filled in.
+
+  A row rather than the dropdown the rest of the app uses, for the same reason
+  the tags are pills: this menu is already open, and a menu inside a menu to
+  choose one of four things is a second gesture for no information.
+*/
+function StatusRow({ status, onSelect }) {
+  const current = statusMeta(status).key;
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {STATUSES.map((meta) => {
+        const on = meta.key === current;
+        return (
+          <button
+            key={meta.key}
+            type="button"
+            onClick={() => onSelect(meta.key)}
+            title={on ? `${meta.label} — it is this now` : `Mark ${meta.label.toLowerCase()}`}
+            aria-pressed={on}
+            className={`inline-flex items-center gap-1.5 text-[11.5px] font-semibold rounded-full pl-1.5 pr-2.5 py-[3px] border transition-colors ${
+              on ? `${meta.chip} shadow-sm` : 'border-gray-200 text-gray-600 hover:bg-gray-50 hover:border-gray-300'
+            }`}
+          >
+            <StatusDot status={meta.key} size={11} />
+            {meta.short}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 /**
  * @param point       where the pointer was: { x, y } in viewport coordinates.
  * @param title       what it is called now.
@@ -108,8 +148,9 @@ const FIELD = 'w-full text-gray-800 bg-white border border-gray-300 rounded-lg p
  */
 export default function BlockMenu({
   point, title, subtitle, description = '', descriptionHead = '', labels = [], labelId = null,
-  note = null, readOnlyNote = null, naming = false, namePlaceholder = '',
-  onTag, onRename, onDescribe, onDelete, onConfirm, confirmLabel = 'Add to the day', onClose,
+  note = null, readOnlyNote = null, naming = false, namePlaceholder = '', status = null,
+  onStatus, onTag, onRename, onDescribe, onDelete, onConfirm,
+  confirmLabel = 'Add to the day', onClose,
 }) {
   const ref = useRef(null);
   const [pos, setPos] = useState(null);
@@ -373,6 +414,16 @@ export default function BlockMenu({
           <p className="mt-1.5 text-[11px] text-gray-400 leading-snug">{readOnlyNote}</p>
         )}
       </div>
+
+      {/* Only a task has one. A commitment is not work you are part-way
+          through, and somebody else's meeting is not yours to be part-way
+          through. */}
+      {onStatus && (
+        <div className="px-3 py-2.5 border-b border-gray-100">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">Status</p>
+          <StatusRow status={status} onSelect={onStatus} />
+        </div>
+      )}
 
       <div className="px-3 py-2.5">
         <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">

@@ -968,6 +968,19 @@ export default function TodayPage() {
     }
   }, [changeExternal, events, patchTask, writeEvents]);
 
+  /*
+    HOW FAR ALONG THE WORK IS, said from the block.
+
+    Only a task has one — a commitment is not something you are part-way through
+    — so unlike the tag and the name this dispatches nowhere else: it is the same
+    `patchTask` the row, the board and the detail panel all use, which is what
+    makes ticking a block off on the calendar the same act as ticking it off
+    anywhere else, `completed_at` and all.
+  */
+  const statusBlock = useCallback((block, status) => {
+    if (block.kind === 'task') patchTask(block.task.id, { status });
+  }, [patchTask]);
+
   const renameBlock = useCallback((block, title) => {
     if (block.kind === 'task') patchTask(block.task.id, { title });
     else if (block.kind === 'event') {
@@ -1375,6 +1388,7 @@ export default function TodayPage() {
           onPlaceTask={placeTask}
           onPlaceEvent={placeEvent}
           onPlaceExternal={placeExternal}
+          onStatusBlock={statusBlock}
           onTagBlock={tagBlock}
           onRenameBlock={renameBlock}
           onDescribeBlock={describeBlock}
@@ -1484,7 +1498,8 @@ export default function TodayPage() {
               onPlaceTask={placeTask}
               onPlaceEvent={placeEvent}
               onPlaceExternal={placeExternal}
-              onTagBlock={tagBlock}
+              onStatusBlock={statusBlock}
+          onTagBlock={tagBlock}
               onRenameBlock={renameBlock}
               onDescribeBlock={describeBlock}
               onDeleteBlock={deleteBlock}

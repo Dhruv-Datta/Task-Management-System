@@ -563,6 +563,11 @@ export function dayTimeline(tasks, events = [], today = todayISO(), external = [
         that leaked into it would be saved as part of the name.
       */
       mustDo: normalizeDailyPriority(task.daily_priority) === 'must_do',
+      // How far along it is, and the one fact drawn from it: a finished block is
+      // struck through on the grid. Carried on the block so the timeline never
+      // has to reach into the task to know how to draw it.
+      status: task.status,
+      done: !!task.done,
       // The tag, in the same place on all three kinds of block, so the grid can
       // colour one without first asking what it is.
       labelId: task.google_label_id || null,

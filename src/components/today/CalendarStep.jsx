@@ -56,7 +56,7 @@ export default function CalendarStep({
   day, timeline, nowMinutes, listFor, canvasRef, dragPreview,
   onPatch, onOpen, onSchedule, onRemoveFromToday, onSetHalf,
   onUnschedule, onPlaceTask, onPlaceEvent, onPlaceExternal, onCreateEvent,
-  onTagBlock, onRenameBlock, onDescribeBlock, onDeleteBlock, tags,
+  onStatusBlock, onTagBlock, onRenameBlock, onDescribeBlock, onDeleteBlock, tags,
   googleControl = null,
 }) {
   const unplaced = day.open.filter(task => !task.scheduled_start);
@@ -103,6 +103,7 @@ export default function CalendarStep({
         onPlaceEvent={onPlaceEvent}
         onPlaceExternal={onPlaceExternal}
         onCreateEvent={onCreateEvent}
+        onStatusBlock={onStatusBlock}
         onTagBlock={onTagBlock}
         onRenameBlock={onRenameBlock}
         onDescribeBlock={onDescribeBlock}
