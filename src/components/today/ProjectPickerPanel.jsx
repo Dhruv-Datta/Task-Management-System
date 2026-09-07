@@ -9,6 +9,11 @@
   shouting gets a chance — the thing with no due date that you actually care
   about, the project you have not touched in a week.
 
+  It has NO SCROLLBAR OF ITS OWN. The step is as long as your projects are and
+  the window scrolls it, because a panel that scrolls inside a page that scrolls
+  makes the same gesture mean two different things depending on where the
+  pointer is sitting — and the one list here is the whole point of the step.
+
   `excludePlanned: false`, deliberately: what you have already put on today
   stays visible here, ticked, so this step reads as a checklist of everything
   rather than a shrinking pile you cannot verify. Un-choosing something you just
@@ -23,7 +28,7 @@ import { Panel, PanelHead } from '@/components/dashboard/Panel';
 import TaskBrowser from './TaskBrowser';
 
 export default function ProjectPickerPanel({
-  tasks, lists, today, onPlan, onRemove, onOpen, maxHeight = 460,
+  tasks, lists, today, onPlan, onRemove, onOpen,
 }) {
   const [query, setQuery] = useState('');
 
@@ -60,7 +65,6 @@ export default function ProjectPickerPanel({
           onPlan={onPlan}
           onRemove={onRemove}
           onOpen={onOpen}
-          maxHeight={maxHeight}
           emptyNote={query ? 'Nothing matches that.' : 'Nothing open anywhere. Enjoy it.'}
         />
       </div>

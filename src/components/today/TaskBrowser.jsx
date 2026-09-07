@@ -22,6 +22,11 @@
 
   It is the body of Add from projects, and the only place in the app that lists
   every project's work at once without asking you to go to any of them.
+
+  IT HAS NO SCROLLBAR OF ITS OWN. It is as tall as your projects are, and the
+  page around it is what moves: a list in a box that scrolls inside a page that
+  also scrolls is two scrollbars for one list, and the wheel then means
+  whichever of them the pointer happens to be sitting over.
 */
 
 import { useEffect, useRef } from 'react';
@@ -54,7 +59,7 @@ function BrowserRow({ task, half, onPlan, onRemove, onOpen }) {
 
 export default function TaskBrowser({
   groups, plannedHalf, onPlan, onRemove, onOpen, query, onQuery, autoFocus = false,
-  maxHeight = 320, emptyNote = 'Nothing left to choose from.', className = '',
+  emptyNote = 'Nothing left to choose from.', className = '',
 }) {
   const inputRef = useRef(null);
   useEffect(() => {
@@ -75,7 +80,7 @@ export default function TaskBrowser({
         />
       </div>
 
-      <div style={{ maxHeight }} className="mt-1 overflow-y-auto px-2 pb-1">
+      <div className="mt-1 px-2 pb-1">
         {groups.length === 0 ? (
           <p className="px-3 py-6 text-[13px] text-gray-400 text-center">{emptyNote}</p>
         ) : (

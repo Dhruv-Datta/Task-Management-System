@@ -33,7 +33,7 @@ import {
   addDaysISO, clockToMinutes, dayClock, dayMinutes, snapUpMinutes, todayISO,
 } from './dates.js';
 import {
-  DEFAULT_BLOCK_MINUTES, UNKNOWN_LIST, compareTasks, isOverdue, isOwedToday,
+  DEFAULT_BLOCK_MINUTES, UNKNOWN_LIST, compareByDueDate, compareTasks, isOverdue, isOwedToday,
   normalizeDailyPriority, normalizeEstimate,
 } from './tasks.js';
 import { MAX_DESCRIPTION, normalizeExternals, normalizeLabelId } from './googleEvents.js';
@@ -347,6 +347,12 @@ export function attention(tasks, today = todayISO()) {
  *                   what you have NOT chosen); the planner does not, because
  *                   there it is a checklist and the things already chosen have
  *                   to show up ticked.
+ *
+ * Inside a project the order is BY DEADLINE (`compareByDueDate`), not by
+ * priority. Everything here is work you already decided matters — that is what
+ * being open in one of your projects means — so the question this step actually
+ * asks is "what is closing in", and priority is left to settle the ties. Undated
+ * work sorts last, where you look once the dated work is spoken for.
  */
 export function taskCatalog(tasks, lists = [], { today = todayISO(), query = '', excludePlanned = false } = {}) {
   const index = listIndex(lists);
@@ -369,7 +375,7 @@ export function taskCatalog(tasks, lists = [], { today = todayISO(), query = '',
 
   return [...groups.values()]
     .filter(group => group.tasks.length > 0)
-    .map(group => ({ ...group, tasks: group.tasks.sort(compareTasks) }));
+    .map(group => ({ ...group, tasks: group.tasks.sort(compareByDueDate) }));
 }
 
 /** The estimated minutes of a set of tasks: the planner's running total. */
