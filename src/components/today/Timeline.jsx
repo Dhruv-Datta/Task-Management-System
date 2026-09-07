@@ -746,8 +746,7 @@ export default function Timeline({
   onOpenTask, onUnschedule, onPlaceTask, onPlaceEvent, onAddEvent, onEditEvent,
   onPlaceExternal, onTagBlock, onRenameBlock, onDescribeBlock, onDeleteBlock,
   tags = NO_TAGS,
-  dragPreview = null, sticky = false, maxHeight = 'calc(100vh - 230px)',
-  googleControl = null, fill = false,
+  dragPreview = null, googleControl = null,
 }) {
   // No `isOver` styling: the canvas used to tint green while something was over
   // it, which was the only feedback back when the drop preview was a dashed
@@ -755,22 +754,30 @@ export default function Timeline({
   // block, in the block's colour, at the minute it will land on — and a green
   // wash behind it is a second thing saying less.
   const { setNodeRef } = useDroppable({ id: 'timeline' });
-  const scrollRef = useRef(null);
   const canvasEl = useRef(null);
 
   const origin = timeline.startMinute;
   const height = (timeline.endMinute - timeline.startMinute) * PX_PER_MINUTE;
 
   /*
-    Open on the working part of the day rather than at 7am. The page is read in
+    Open on the working part of the day rather than at 4am. The page is read in
     the morning and again at three in the afternoon, and the second of those
     should not begin with a scroll.
+
+    It is the PAGE that is moved now, because the grid no longer has a scroll of
+    its own — and only when the hour is genuinely off screen. Scrolling a page
+    that is already showing you the thing you came for is the app taking the
+    view away from you to give you the same view back.
   */
   useEffect(() => {
-    const el = scrollRef.current;
+    const el = canvasEl.current;
     if (!el) return;
     const focus = nowMinutes ?? timeline.blocks[0]?.start ?? origin;
-    el.scrollTop = Math.max(0, (focus - origin) * PX_PER_MINUTE - 80);
+    const top = el.getBoundingClientRect().top + window.scrollY;
+    const y = top + (focus - origin) * PX_PER_MINUTE;
+    if (y > window.scrollY + window.innerHeight - 160) {
+      window.scrollTo({ top: Math.max(0, y - 140) });
+    }
     // Once, on mount: after that where you have scrolled to is your business.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -785,32 +792,33 @@ export default function Timeline({
   /*
     AUTO-SCROLL, while a gesture is running.
 
-    Drag towards either end of the column and it scrolls, faster the closer to
-    the edge you hold. Each frame that actually moves the scroll re-runs the
-    gesture's own geometry against the last known pointer position, because the
-    canvas has just slid under a cursor that did not move — and a calendar where
-    the block stops following your cursor the moment the page scrolls is the
-    thing that makes long drags impossible.
+    Hold a block near the top or the bottom of the WINDOW and the page scrolls,
+    faster the closer to the edge you hold — the window, because the grid is
+    drawn at full height and the page is the only thing that scrolls now, so
+    dragging 9am down to 6pm means moving the page rather than a box on it.
+
+    Each frame that actually moves the page re-runs the gesture's own geometry
+    against the last known pointer position, because the canvas has just slid
+    under a cursor that did not move — and a calendar where the block stops
+    following your cursor the moment the page scrolls is the thing that makes
+    long drags impossible.
   */
   const auto = useRef({ raf: 0, y: 0, apply: null });
 
   const frame = () => {
     const state = auto.current;
-    const el = scrollRef.current;
-    if (!el) { state.raf = 0; return; }
 
-    const rect = el.getBoundingClientRect();
     let step = 0;
-    if (state.y < rect.top + SCROLL_ZONE) {
-      step = -SCROLL_SPEED * ((rect.top + SCROLL_ZONE - state.y) / SCROLL_ZONE);
-    } else if (state.y > rect.bottom - SCROLL_ZONE) {
-      step = SCROLL_SPEED * ((state.y - (rect.bottom - SCROLL_ZONE)) / SCROLL_ZONE);
+    if (state.y < SCROLL_ZONE) {
+      step = -SCROLL_SPEED * ((SCROLL_ZONE - state.y) / SCROLL_ZONE);
+    } else if (state.y > window.innerHeight - SCROLL_ZONE) {
+      step = SCROLL_SPEED * ((state.y - (window.innerHeight - SCROLL_ZONE)) / SCROLL_ZONE);
     }
 
     if (step) {
-      const before = el.scrollTop;
-      el.scrollTop = clamp(before + step, 0, el.scrollHeight - el.clientHeight);
-      if (el.scrollTop !== before) state.apply?.(state.y);
+      const before = window.scrollY;
+      window.scrollBy(0, step);
+      if (window.scrollY !== before) state.apply?.(state.y);
     }
     state.raf = requestAnimationFrame(frame);
   };
@@ -996,17 +1004,14 @@ export default function Timeline({
   };
 
   /*
-    `fill`: on a wide screen the page around this is a fixed-height column (see
-    /today), so the panel takes the height it is given and the hours scroll
-    INSIDE it. That is the whole point — a calendar whose own scroll is also
-    the page's scroll makes you scroll the page past nothing to reach 3pm.
+    THE WHOLE DAY, DRAWN. The panel has no height of its own and no scroll of
+    its own: 4am to 4am at a pixel a minute is exactly as tall as it is, and the
+    page it sits on is what moves. A grid that scrolled inside a page that also
+    scrolled meant two ways to reach 3pm and no way to tell, from the outside,
+    which one the wheel was about to use.
   */
   return (
-    <Panel
-      className={`${sticky ? 'lg:sticky lg:top-24' : ''} ${
-        fill ? 'lg:h-full lg:flex lg:flex-col lg:min-h-0' : ''
-      }`}
-    >
+    <Panel>
       <PanelHead
         title="Timeline"
         hint={timeline.blocks.length === 0 ? 'drag a task across' : null}
@@ -1083,19 +1088,7 @@ export default function Timeline({
         </div>
       )}
 
-      <div
-        ref={scrollRef}
-        // Narrow, the panel is one of two stacked cards and the page scrolls
-        // past it, so it caps itself. Wide and filling, the height comes from
-        // the column it is in and a cap of its own is what left the page with
-        // a hundred spare pixels to scroll through.
-        style={fill ? { '--tl-max': maxHeight } : { maxHeight }}
-        className={`px-3 pb-3 overflow-y-auto ${
-          fill
-            ? 'max-h-[var(--tl-max)] min-h-[320px] lg:max-h-none lg:min-h-0 lg:flex-1'
-            : 'min-h-[320px]'
-        }`}
-      >
+      <div className="px-3 pb-3">
         <div
           ref={(node) => {
             setNodeRef(node);

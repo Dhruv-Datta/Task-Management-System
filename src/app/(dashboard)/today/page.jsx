@@ -1002,11 +1002,11 @@ export default function TodayPage() {
     Where the pointer is, and where inside the dragged thing you took hold of
     it. Both are read live rather than reconstructed from dnd-kit's `delta` at
     the end: that delta is the TRANSFORM applied to the element, which already
-    carries any scrolling that happened mid-drag, and the timeline is a
-    scrolling container that dnd-kit will happily scroll for you as you
-    approach its edge. Adding a fresh rect to a delta that has already been
-    corrected counts the same scroll twice, and a block dropped at four lands
-    at seven.
+    carries any scrolling that happened mid-drag — and a long drag down a grid
+    that now draws the whole day scrolls the PAGE, either by dnd-kit's own
+    auto-scroll or by the timeline's. Adding a fresh rect to a delta that has
+    already been corrected counts the same scroll twice, and a block dropped at
+    four lands at seven.
 
     A block keeps its grab offset, so it comes to rest where you dropped it
     instead of snapping its own top edge up to the cursor. A row dragged in
@@ -1376,30 +1376,27 @@ export default function TodayPage() {
   const finalized = !!plan?.finalized;
 
   /*
-    THE CALENDAR IS THE WINDOW, not something on a page that scrolls.
+    ONE SCROLLBAR, AND IT IS THE PAGE'S.
 
-    On the two views the timeline is the main object — the calendar step, and
-    the finished day — the page is exactly as tall as what is left of the
-    window, and anything that does not fit scrolls inside its own column. Give
-    those views an ordinary page instead and the window scrolls a hundred
-    pixels past the bottom of a grid that is already showing you everything:
-    a scrollbar that moves nothing you wanted to see.
+    This page used to be the window on its two calendar views — the page exactly
+    as tall as what was left of the screen, the timeline scrolling inside one
+    column and the task list inside another. Every panel then had an edge you
+    could not see and a scroll position of its own, and the wheel meant a
+    different thing depending on which one the pointer happened to be sitting
+    over: three ways to move, none of them the page.
 
-    Wide screens only. Stacked into one column on a phone the two panels are
-    genuinely taller than the window, and there the page is right to scroll.
+    So nothing here scrolls except the page. The timeline draws the whole day at
+    its full height, the column beside it is as long as it is, and one gesture
+    moves all of it together — which is also what makes the two readable AS one
+    thing, since the hour and the task that belongs to it now move in step
+    instead of sliding past each other.
   */
-  const fitsWindow = finalized || step === 'calendar';
-
   return (
     /*
       Same white ground and same container as /tasks: this is another room in
       the same building, not a different app one tab across.
     */
-    <div
-      className={`max-w-[1400px] mx-auto px-6 lg:px-12 pt-6 pb-16 ${
-        fitsWindow ? 'lg:h-[calc(100vh-6rem)] lg:pb-6 lg:flex lg:flex-col' : ''
-      }`}
-    >
+    <div className="max-w-[1400px] mx-auto px-6 lg:px-12 pt-6 pb-16">
       {loadError && <div className="mb-4"><LoadError error={loadError} onRetry={() => loadAll()} /></div>}
       {writeError && <WriteError error={writeError} onDismiss={() => setWriteError(null)} />}
       {googleNotice && (
@@ -1475,7 +1472,6 @@ export default function TodayPage() {
             />
           ) : (
             <PlanFlow
-              fill={fitsWindow}
               step={step}
               onStep={goStep}
               onBack={goBack}

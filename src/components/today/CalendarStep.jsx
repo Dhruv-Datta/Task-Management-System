@@ -41,11 +41,18 @@ export default function CalendarStep({
 
   return (
     /*
-      Wide, this is the page: the two columns are exactly as tall as what is
-      left of the window, and each one scrolls inside itself. Stacked on a
-      narrow screen they go back to being two cards on a scrolling page.
+      Two columns wide, one under the other on a narrow screen, and NEITHER of
+      them scrolls: the grid is drawn at its full height and the column beside
+      it is as long as your unplaced work is. The page is what moves, so the
+      hour you are looking at and the task you are about to drag into it move
+      together — which is the whole gesture this step is made of.
+
+      Not pinned, either. A column stuck to the top of the screen that is longer
+      than the screen is a column whose last few rows you can never reach; the
+      drag that needs a far-off hour is served by the auto-scroll instead (see
+      Timeline), which moves the page under the task you are already holding.
     */
-    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(320px,420px)] gap-5 items-start lg:h-full lg:min-h-0 lg:items-stretch lg:grid-rows-[minmax(0,1fr)]">
+    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(320px,420px)] gap-5 items-start">
       <Timeline
         timeline={timeline}
         events={events}
@@ -65,11 +72,9 @@ export default function CalendarStep({
         tags={tags}
         dragPreview={dragPreview}
         googleControl={googleControl}
-        maxHeight="calc(100vh - 300px)"
-        fill
       />
 
-      <Panel className="lg:h-full lg:flex lg:flex-col lg:min-h-0">
+      <Panel>
         {/*
           Title and count, and nothing else. Not a hint, and not a total of the
           hours still to place: a sum of guesses is a number you cannot act on,
@@ -77,7 +82,7 @@ export default function CalendarStep({
         */}
         <PanelHead title="Not placed yet" count={unplaced.length} />
 
-        <div className="px-2 pb-3 lg:flex-1 lg:min-h-0 lg:overflow-y-auto">
+        <div className="px-2 pb-3">
           {unplaced.length === 0 ? (
             <div className="px-4 py-10 text-center">
               <CalendarClock size={18} className="inline-block mb-2 text-gray-300" />
