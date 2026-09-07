@@ -99,6 +99,10 @@ export default function CalendarStep({
         canvasRef={canvasRef}
         onOpenTask={onOpen}
         onUnschedule={onUnschedule}
+        // The × on a block takes the HOUR off; this is the other half of the
+        // same sentence — off the day entirely — said where the block is,
+        // rather than only on the row in the column beside it.
+        onRemoveTask={onRemoveFromToday}
         onPlaceTask={onPlaceTask}
         onPlaceEvent={onPlaceEvent}
         onPlaceExternal={onPlaceExternal}

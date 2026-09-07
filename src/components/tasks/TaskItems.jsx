@@ -11,7 +11,7 @@
   thing telling two similarly-named tasks apart.
 */
 
-import { CalendarDays, ListChecks, Trash2 } from 'lucide-react';
+import { CalendarDays, ListChecks, Trash2, X } from 'lucide-react';
 import { isOverdue, subtaskProgress } from '@/lib/tasks';
 import {
   DateChip, DatePicker, HardFlag, PriorityPicker, StatusChip, StatusPicker,
@@ -167,7 +167,8 @@ export function TaskRow({ task, list = null, showStatus = false, onPatch, onOpen
   on one stack up one-per-line on the other.
 */
 export function TaskCard({
-  task, list = null, onPatch, onOpen, dragHandleProps, compact = false, dense = false,
+  task, list = null, onPatch, onOpen, onRemove = null, removeLabel = 'Remove',
+  dragHandleProps, compact = false, dense = false,
 }) {
   const late = isOverdue(task);
   const hard = task.is_hard && !task.done;
@@ -195,6 +196,29 @@ export function TaskCard({
         <span className="flex-shrink-0 flex items-center h-[18px]">
           <HardFlag hard={hard} size={12} />
         </span>
+
+        {/*
+          TAKING IT OUT OF THIS BOARD — not out of the app.
+
+          Only where the board is a SLICE of the work and being on it is a
+          decision you can change: /today's finished day, where this is "take it
+          off today" (see DayView). The board on /tasks is the list itself, and
+          there is no such thing as removing a task from the list it is in, so
+          it passes nothing and the card draws nothing.
+
+          On hover, in the corner, and it never fires the card's own click on
+          its way past.
+        */}
+        {onRemove && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onRemove(task); }}
+            title={removeLabel}
+            className="flex-shrink-0 -mr-1 -mt-0.5 p-1 rounded-md text-gray-300 opacity-0 group-hover:opacity-100 hover:text-red-500 hover:bg-red-50 transition-all active:scale-90"
+          >
+            <X size={13} />
+          </button>
+        )}
       </div>
 
       {/* What it's part of: the list it lives in, and only when the view spans

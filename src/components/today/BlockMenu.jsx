@@ -42,7 +42,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, Tag, Trash2 } from 'lucide-react';
+import { CalendarX, Check, Tag, Trash2 } from 'lucide-react';
 import { OVERLAY_Z, StatusDot } from '@/components/tasks/TaskPickers';
 import { STATUSES, statusMeta } from '@/lib/tasks';
 import { inkOn } from '@/lib/colors';
@@ -141,6 +141,11 @@ function StatusRow({ status, onSelect }) {
  * @param labelId     the tag it carries now, or null.
  * @param onRename    (title) → present only where a rename can actually land.
  * @param onDescribe  (text) → likewise; '' is a real value and clears it.
+ * @param onRemove    take the task off today — present on a task's block and
+ *                    nowhere else. It is not a delete: the task keeps its
+ *                    hour's worth of nothing and goes back to being work you
+ *                    have not scheduled, which is why it sits above Delete and
+ *                    reads in its own words.
  * @param onDelete    present only where a delete can land; always last.
  * @param readOnlyNote  why the words cannot be edited, when they cannot.
  * @param note        one line of why something else is missing: a read-only
@@ -149,7 +154,7 @@ function StatusRow({ status, onSelect }) {
 export default function BlockMenu({
   point, title, subtitle, description = '', descriptionHead = '', labels = [], labelId = null,
   note = null, readOnlyNote = null, naming = false, namePlaceholder = '', status = null,
-  onStatus, onTag, onRename, onDescribe, onDelete, onConfirm,
+  onStatus, onTag, onRename, onDescribe, onRemove, onDelete, onConfirm,
   confirmLabel = 'Add to the day', onClose,
 }) {
   const ref = useRef(null);
@@ -504,16 +509,42 @@ export default function BlockMenu({
         </div>
       )}
 
-      {onDelete && !onConfirm && (
+      {/*
+        THE WAY OUT, at the bottom, where the last thing you read is the only
+        thing here you cannot undo by pressing it again.
+
+        Two of them, and they are different sentences about different objects.
+        TAKE OFF TODAY is about the DAY: the task stops being on it and keeps
+        everything else it is, which is the answer to "this was not today after
+        all" — and it is the one a task's block gets, because a task is never
+        deleted from a calendar (see the note above the menu in Timeline).
+        DELETE is about the block itself, and only a thing that IS its block —
+        a commitment, an event — has one.
+      */}
+      {(onRemove || onDelete) && !onConfirm && (
         <div className="border-t border-gray-100 py-1">
-          <button
-            type="button"
-            onClick={() => { onDelete(); onClose(); }}
-            className="w-full text-left px-3 py-1.5 text-[13px] text-gray-600 flex items-center gap-2 hover:bg-red-50 hover:text-red-600 transition-colors"
-          >
-            <Trash2 size={13} />
-            Delete
-          </button>
+          {onRemove && (
+            <button
+              type="button"
+              onClick={() => { onRemove(); onClose(); }}
+              title="It stays in its list, with everything else about it unchanged"
+              className="w-full text-left px-3 py-1.5 text-[13px] text-gray-600 flex items-center gap-2 hover:bg-red-50 hover:text-red-600 transition-colors"
+            >
+              <CalendarX size={13} />
+              Take off today
+            </button>
+          )}
+
+          {onDelete && (
+            <button
+              type="button"
+              onClick={() => { onDelete(); onClose(); }}
+              className="w-full text-left px-3 py-1.5 text-[13px] text-gray-600 flex items-center gap-2 hover:bg-red-50 hover:text-red-600 transition-colors"
+            >
+              <Trash2 size={13} />
+              Delete
+            </button>
+          )}
         </div>
       )}
     </div>,

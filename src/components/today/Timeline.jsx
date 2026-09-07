@@ -63,8 +63,11 @@
     click empty canvas            the same thing, an hour long.
     click a block                 open what it is.
     right-click a block           the tag menu: the coloured labels you keep
-                                  your calendar in, and — on one of Google's own
-                                  events — rename and delete (see BlockMenu).
+                                  your calendar in, how far along the work is,
+                                  and the one way out the block has — a task
+                                  comes off the day, a commitment or one of
+                                  Google's own events is renamed and deleted
+                                  (see BlockMenu).
 
   All of them are plain pointer events rather than dnd-kit, and that is not an
   accident. dnd-kit moves an ELEMENT by a transform: the right tool for carrying
@@ -813,7 +816,7 @@ function menuSubtitle(block) {
 
 export default function Timeline({
   timeline, nowMinutes, canvasRef,
-  onOpenTask, onUnschedule, onPlaceTask, onPlaceEvent,
+  onOpenTask, onUnschedule, onRemoveTask, onPlaceTask, onPlaceEvent,
   onPlaceExternal, onCreateEvent, onStatusBlock, onTagBlock, onRenameBlock, onDescribeBlock,
   onDeleteBlock,
   tags = NO_TAGS,
@@ -1346,6 +1349,14 @@ export default function Timeline({
         not deleted from a calendar menu, because removing it is a decision
         about work rather than about an hour, and a right-click is easy to
         mis-aim.
+
+        WHAT A TASK GETS INSTEAD IS "TAKE OFF TODAY", which is the same
+        gesture's honest meaning: the × on the block takes the HOUR off and
+        leaves the task on the day, and until now there was nowhere on the grid
+        to say the other half — that it is not today's work at all. It is not
+        destructive in the way Delete is (the task keeps its list, its title and
+        its deadline; see `removeFromToday` in /today), so it can live on a
+        right-click without the same care.
       */}
       {menu && menuBlock && (() => {
         const words = wordsOf(menuBlock);
@@ -1400,6 +1411,14 @@ export default function Timeline({
             onDescribe={aboutPending
               ? text => setPending(p => (p ? { ...p, notes: text } : p))
               : (words.editable && !words.clipped ? text => onDescribeBlock(menuBlock, text) : null)}
+            /*
+              Only a task, and only one that is really on the day: a block you
+              have not confirmed yet is taken off by discarding it, which is the
+              button already sitting at the foot of this menu.
+            */
+            onRemove={menuBlock.kind === 'task' && !aboutPending && onRemoveTask && menuBlock.task
+              ? () => onRemoveTask(menuBlock.task)
+              : null}
             onDelete={
               aboutPending || menuBlock.kind === 'task'
                 || (menuBlock.kind === 'external' && !menuBlock.external?.writable)

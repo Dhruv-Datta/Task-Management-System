@@ -29,7 +29,10 @@
 
   Then the day is FINALIZED and the page stops being a form: it becomes the
   finished day (DayView) — the calendar, with the day's work in priority order
-  beside it — and stays that way until tomorrow or until you re-plan.
+  beside it, or the same day as the four status columns — and stays that way
+  until tomorrow or until you re-plan. The board is the working half of that:
+  the flow decided WHAT and WHEN, and a day being worked through needs somewhere
+  to say how far each thing has got.
 
   What is ON the day is DERIVED, not looked up: `plannedDay` in lib/agenda takes
   everything you chose (`planned_date === today`) plus everything you owe (due
@@ -573,6 +576,40 @@ export default function TodayPage() {
     // this page exists to keep apart.
     setComposer({ list_id: newTaskListId, planned_date: today, daily_priority: 'must_do' });
   }, [newTaskListId, today]);
+
+  /*
+    The board's + : a task written into a column starts in that column.
+
+    Everything else about it is what `openComposer` writes — today's date, the
+    list you last had open, must-do — because a task written on this page is for
+    this page whichever way the day happens to be drawn.
+  */
+  const openComposerForStatus = useCallback((status) => {
+    setComposer({ list_id: newTaskListId, planned_date: today, daily_priority: 'must_do', status });
+  }, [newTaskListId, today]);
+
+  /*
+    A CARD DRAGGED ACROSS THE FINISHED DAY'S BOARD.
+
+    Only the status matters here, and only the status is written. The board is
+    holding a SLICE — today, across every list — so it is given `reorderable`
+    off (see TaskBoardView) and hands back nothing but the cards that crossed
+    into another column; renumbering `position` from a view that can see four
+    of a list's forty tasks would shove those four to the top of the real board.
+
+    Each one goes through `patchTask` rather than through the board's settled
+    list, so a status set here is the same write as a status set anywhere else
+    on the page: version-guarded, optimistic, and expanded into `done` and
+    `completed_at` on the way (see lib/taskStore). Which is what makes dragging
+    a card into Completed tick the task off — on the board, in the column beside
+    the calendar, and on /tasks.
+  */
+  const boardDrag = useCallback((_settled, itemsToSave) => {
+    for (const item of itemsToSave || []) {
+      if (item.status === undefined) continue;
+      patchTask(item.id, { status: item.status });
+    }
+  }, [patchTask]);
 
   const setHalf = useCallback((task, half) => {
     patchTask(task.id, { daily_priority: half });
@@ -1511,6 +1548,16 @@ export default function TodayPage() {
               onDeleteBlock={deleteBlock}
               tags={tags}
               onCreateEvent={saveEvent}
+              onBoardDrag={boardDrag}
+              onAddTask={openComposerForStatus}
+              /*
+                THE WAY OFF THE DAY, on the finished day as well as inside the
+                flow. A plan stops being true at eleven o'clock, and until now
+                the only way to take one row out of it was to re-open all four
+                steps — so it is on the row, on the card and on the block's
+                menu, and it is the same write the flow's rows make.
+              */
+              onRemoveFromToday={removeFromToday}
               dragPreview={dragPreview}
               googleControl={googleControl}
               googleSync={<GoogleSync google={google} sync={syncView} onSync={sendToGoogle} />}

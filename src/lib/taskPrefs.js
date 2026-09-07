@@ -80,6 +80,24 @@ const sortByStore = choice('tasks.sortBy', value => (
   SORT_BY.some(o => o.key === value) ? value : 'priority'
 ));
 
+/*
+  HOW THE FINISHED DAY IS DRAWN: the calendar, or the status board.
+
+  Two different questions about the same day, and you ask them at different
+  moments. The calendar answers "what now" — the one you open in the morning,
+  and the default. The board answers "where is each of these up to", which is
+  the question you have while you are working rather than while you are
+  planning: you start something, it moves to In progress, and the day says so.
+
+  A standing preference like the rest of this file, for the same reason: if you
+  work off the board, you work off the board tomorrow as well, and being handed
+  the calendar again every morning is the page forgetting something you already
+  told it.
+*/
+const dayLayoutStore = choice('today.layout', value => (
+  value === 'board' ? 'board' : 'calendar'
+));
+
 /** What the list view's sections are. Always something; defaults to status. */
 export function useGroupBy() {
   const groupBy = useSyncExternalStore(groupByStore.subscribe, groupByStore.get, groupByStore.server);
@@ -109,6 +127,12 @@ const lastFiledListStore = choice('inbox.lastList', value => value || null);
 export function useSortBy() {
   const sortBy = useSyncExternalStore(sortByStore.subscribe, sortByStore.get, sortByStore.server);
   return [sortBy, sortByStore.write];
+}
+
+/** How the finished day is drawn: 'calendar' (the default) or 'board'. */
+export function useDayLayout() {
+  const layout = useSyncExternalStore(dayLayoutStore.subscribe, dayLayoutStore.get, dayLayoutStore.server);
+  return [layout, dayLayoutStore.write];
 }
 
 /** Which list the inbox's triage card opens on, or `null` before you file one. */

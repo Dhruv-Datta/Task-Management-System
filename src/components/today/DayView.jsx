@@ -17,6 +17,18 @@
   everything in the list still opens the task itself, so this is a place you can
   work from rather than a summary you have to leave in order to act.
 
+  AND THE SAME DAY AS A BOARD, behind the switch in the header. The calendar and
+  the list beside it both answer WHEN and WHAT; neither of them answers where a
+  thing is up to, which is the question you actually have at eleven o'clock with
+  three things half-started. So the day is also the four status columns the rest
+  of the app is built on, holding today and nothing else — you drag a card into
+  In progress as you start it, and into Completed as you finish it, which is the
+  same write the tick in the column beside the calendar makes.
+
+  One day, two drawings of it, one header over both: the counts, the Google
+  status and Re-plan do not move when you switch, because they are facts about
+  the day rather than about the view.
+
   "Re-plan" goes back into the flow at step one. It is deliberately quiet and
   deliberately present: the day changes at eleven o'clock more often than any
   planner likes to admit, and a finished plan you cannot reopen is one you start
@@ -28,13 +40,17 @@
   identical on a timeline. So it is said in words: sent, or send the changes.
 */
 
-import { Pencil, RefreshCw } from 'lucide-react';
+import { useState } from 'react';
+import { CalendarRange, LayoutGrid, Pencil, RefreshCw, X } from 'lucide-react';
 import { compareTasks, priorityMeta } from '@/lib/tasks';
+import { compareByPlan } from '@/lib/agenda';
 import { formatClock, clockToMinutes } from '@/lib/dates';
+import { useDayLayout } from '@/lib/taskPrefs';
 import { GroupLabel, ListBadge, Panel, PanelHead } from '@/components/dashboard/Panel';
 import {
   DateChip, HardFlag, PriorityIcon, StatusDot, StatusPicker,
 } from '@/components/tasks/TaskPickers';
+import TaskBoardView from '@/components/tasks/TaskBoardView';
 import Timeline from './Timeline';
 
 /*
@@ -47,7 +63,7 @@ import Timeline from './Timeline';
   shifting the title left, because a ragged left edge is what makes a list of
   twelve unreadable.
 */
-function DayTaskRow({ task, list, onPatch, onOpen }) {
+function DayTaskRow({ task, list, onPatch, onOpen, onRemove }) {
   const start = clockToMinutes(task.scheduled_start);
   const urgent = task.priority === 'urgent';
 
@@ -93,6 +109,32 @@ function DayTaskRow({ task, list, onPatch, onOpen }) {
         </div>
       </div>
 
+      {/*
+        OFF THE DAY, from the day itself.
+
+        The plan is finished, not settled: half of what a day does after nine
+        o'clock is stop being true, and until now the only way to say "not today
+        after all" from this screen was to re-open the whole four-step flow to
+        take one row out of it. The × is that sentence, on the row it is about.
+
+        On hover, at the tail, and it takes nothing else with it: the task keeps
+        its list, its title and its priority, and an ARRIVED deadline is cleared
+        with it so the day cannot simply hand it back a second later (see
+        `removeFromToday` in /today). Not offered on finished work — taking
+        something you have already done off the day is rewriting the record of
+        it rather than changing a plan.
+      */}
+      {onRemove && !task.done && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onRemove(task); }}
+          title="Take off today"
+          className="flex-shrink-0 mt-[1px] p-1 rounded-md text-gray-400 opacity-0 group-hover:opacity-100 hover:text-red-500 hover:bg-red-50 transition-all active:scale-90"
+        >
+          <X size={13} />
+        </button>
+      )}
+
       {task.done && (
         <span className="flex-shrink-0 w-[22px] h-[22px] flex items-center justify-center">
           <StatusDot status={task.status} size={13} />
@@ -102,13 +144,69 @@ function DayTaskRow({ task, list, onPatch, onOpen }) {
   );
 }
 
+/*
+  THE TWO WAYS TO READ A DAY YOU HAVE ALREADY PLANNED.
+
+  Same day, same tasks, two questions. The CALENDAR answers "what now" — the
+  hours, and what is in them. The BOARD answers "where is each of these up to":
+  four status columns, and you drag a card into In progress as you start it. The
+  second is the one you want at eleven o'clock with three things half-done,
+  which the timeline cannot tell you — a block says WHEN something is happening
+  and nothing at all about whether it is under way.
+
+  A pair of buttons rather than a link somewhere else, because it is one page
+  either way: the header above stays put, the thing under it changes. Drawn as
+  the app bar's view switcher is (see Navbar) — a recessed group, only the
+  active one a solid chip — so the same control means the same thing in both
+  places.
+*/
+const DAY_LAYOUTS = [
+  { key: 'calendar', label: 'Calendar', icon: CalendarRange, hint: 'The hours, and what is in them' },
+  { key: 'board', label: 'Board', icon: LayoutGrid, hint: 'Status columns — drag a task as you start it' },
+];
+
+function LayoutSwitch({ layout, onSelect }) {
+  return (
+    <div role="group" aria-label="How to read the day" className="flex items-center gap-0.5 p-1 rounded-xl bg-gray-100/80">
+      {DAY_LAYOUTS.map(option => {
+        const Icon = option.icon;
+        const active = layout === option.key;
+        return (
+          <button
+            key={option.key}
+            type="button"
+            onClick={() => onSelect(option.key)}
+            title={option.hint}
+            aria-pressed={active}
+            className={`flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-[13px] font-semibold whitespace-nowrap transition-colors ${
+              active ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-900'
+            }`}
+          >
+            <Icon size={14} strokeWidth={2.25} className={active ? 'text-emerald-600' : ''} />
+            <span className="hidden sm:inline">{option.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function DayView({
   day, dateLine, summary, timeline, nowMinutes, listFor, canvasRef, refreshing,
   dragPreview, onRefresh, onReplan, onPatch, onOpen, onUnschedule, onPlaceTask, onPlaceEvent,
   onPlaceExternal, onCreateEvent, onStatusBlock, onTagBlock, onRenameBlock, onDescribeBlock,
-  onDeleteBlock, tags,
+  onDeleteBlock, tags, onBoardDrag, onAddTask, onRemoveFromToday,
   googleControl = null, googleSync = null,
 }) {
+  const [layout, setLayout] = useDayLayout();
+  /*
+    The board's Completed column, shown by default. What you finished today is
+    the half of the day worth looking at — the column beside the calendar makes
+    the same choice — and the toggle on that column is how you put it away once
+    the pile gets long enough to be in the way.
+  */
+  const [showCompleted, setShowCompleted] = useState(true);
+
   // Priority order, not plan order: `compareTasks` is priority then due date,
   // which is the same ranking the rest of the app uses.
   const mustDo = [...day.commitments].sort(compareTasks);
@@ -137,6 +235,24 @@ export default function DayView({
 
   const placed = day.open.filter(task => task.scheduled_start).length;
   const left = day.open.length;
+
+  /*
+    WHAT THE BOARD HOLDS: the day, and only the day.
+
+    `day.planned` is everything on today — what you chose in the flow plus what
+    you owe — finished work included, which is the point: a status board with
+    the completed cards taken out of it is a board that can never show you a
+    card arriving in Completed, and arriving there is the gesture the whole
+    column exists for.
+
+    It is a SLICE of the real list, so it is handed to the board as one (see
+    TaskBoardView): no manual reordering, because `position` is one order per
+    list and this view spans every list at once; the list's badge on each card,
+    because it does; and the day's own order inside each column — when it
+    happens, then how much it matters (`compareByPlan`), the same order the
+    timeline reads in.
+  */
+  const boardTasks = showCompleted ? day.planned : day.planned.filter(task => !task.done);
 
   return (
     /*
@@ -170,6 +286,11 @@ export default function DayView({
           </div>
 
           <div className="flex items-center gap-2 flex-shrink-0">
+            {/* Which of the two questions you are asking of the day. First in
+                the row, because it decides what the rest of the page IS; the
+                buttons after it act on the day however it is drawn. */}
+            <LayoutSwitch layout={layout} onSelect={setLayout} />
+
             {/* Where the day WENT, beside where it is. It sits in the header
                 rather than on the timeline because it is a fact about the whole
                 finished day, and because this is the one line you read on your
@@ -204,79 +325,129 @@ export default function DayView({
         </div>
       </section>
 
-      {/* The calendar leads, because the finished day's first question is
-          "what now"; the priority column is the fallback when the schedule
-          stops being true. */}
-      <div className="mt-4 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(300px,400px)] gap-5 items-start">
-        <Timeline
-          timeline={timeline}
-          nowMinutes={nowMinutes}
-          canvasRef={canvasRef}
-          onOpenTask={onOpen}
-          onUnschedule={onUnschedule}
-          onPlaceTask={onPlaceTask}
-          onPlaceEvent={onPlaceEvent}
-          onPlaceExternal={onPlaceExternal}
-          onCreateEvent={onCreateEvent}
-          onStatusBlock={onStatusBlock}
-          onTagBlock={onTagBlock}
-          onRenameBlock={onRenameBlock}
-          onDescribeBlock={onDescribeBlock}
-          onDeleteBlock={onDeleteBlock}
-          tags={tags}
-          dragPreview={dragPreview}
-          googleControl={googleControl}
-        />
+      {layout === 'board' ? (
+        /*
+          THE DAY AS A WORKFLOW. Four columns, the same four the rest of the app
+          uses, holding only what is on today — so moving a card to In progress
+          here is the same write as moving it on /tasks, and the card is in the
+          right column in both places a second later.
 
-        <Panel>
-          <PanelHead
-            title="By priority"
-            count={day.open.length}
-            hint={day.open.length > 0 ? 'what matters, if the hours slip' : 'nothing left'}
+          Full width, and alone: the board is already four columns of cards, and
+          the priority list beside the calendar exists to be the OTHER ordering
+          from the grid. There is no grid here to be the other ordering from,
+          and a fifth column of the same tasks would be the same day said twice.
+        */
+        <div className="mt-4">
+          <TaskBoardView
+            tasks={boardTasks}
+            sort={compareByPlan}
+            listFor={listFor}
+            reorderable={false}
+            onPatch={onPatch}
+            onOpen={onOpen}
+            onAdd={onAddTask}
+            onRemove={onRemoveFromToday}
+            onDragCommit={onBoardDrag}
+            showCompleted={showCompleted}
+            onToggleCompleted={() => setShowCompleted(v => !v)}
           />
 
-          <div className="px-2 pb-3">
-            {/* Nothing to draw rather than nothing on the day: with Finished
-                narrowed to the blocks (above), a day holding only untimed
-                finished work has three empty groups and no rows, and an empty
-                box says less than a sentence does. */}
-            {mustDo.length + optional.length + finished.length === 0 ? (
-              <p className="px-5 py-8 text-[13px] text-gray-400 text-center">
-                Nothing on today. Re-plan to put something on it.
-              </p>
-            ) : (
-              <>
-                {mustDo.length > 0 && (
-                  <>
-                    <GroupLabel count={mustDo.length}>Must finish</GroupLabel>
-                    {mustDo.map(task => (
-                      <DayTaskRow key={task.id} task={task} list={listFor(task)} onPatch={onPatch} onOpen={onOpen} />
-                    ))}
-                  </>
-                )}
+          {day.planned.length === 0 && (
+            <p className="mt-4 text-center text-[13px] text-gray-400">
+              Nothing on today. Re-plan to put something on it.
+            </p>
+          )}
+        </div>
+      ) : (
+        /* The calendar leads, because the finished day's first question is
+           "what now"; the priority column is the fallback when the schedule
+           stops being true. */
+        <div className="mt-4 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(300px,400px)] gap-5 items-start">
+          <Timeline
+            timeline={timeline}
+            nowMinutes={nowMinutes}
+            canvasRef={canvasRef}
+            onOpenTask={onOpen}
+            onUnschedule={onUnschedule}
+            onRemoveTask={onRemoveFromToday}
+            onPlaceTask={onPlaceTask}
+            onPlaceEvent={onPlaceEvent}
+            onPlaceExternal={onPlaceExternal}
+            onCreateEvent={onCreateEvent}
+            onStatusBlock={onStatusBlock}
+            onTagBlock={onTagBlock}
+            onRenameBlock={onRenameBlock}
+            onDescribeBlock={onDescribeBlock}
+            onDeleteBlock={onDeleteBlock}
+            tags={tags}
+            dragPreview={dragPreview}
+            googleControl={googleControl}
+          />
 
-                {optional.length > 0 && (
-                  <div className={mustDo.length > 0 ? 'mt-2 pt-1 border-t border-gray-100' : ''}>
-                    <GroupLabel count={optional.length}>If there&rsquo;s time</GroupLabel>
-                    {optional.map(task => (
-                      <DayTaskRow key={task.id} task={task} list={listFor(task)} onPatch={onPatch} onOpen={onOpen} />
-                    ))}
-                  </div>
-                )}
+          <Panel>
+            <PanelHead
+              title="By priority"
+              count={day.open.length}
+              hint={day.open.length > 0 ? 'what matters, if the hours slip' : 'nothing left'}
+            />
 
-                {finished.length > 0 && (
-                  <div className="mt-2 pt-1 border-t border-gray-100">
-                    <GroupLabel tone="emerald" count={finished.length}>Finished</GroupLabel>
-                    {finished.map(task => (
-                      <DayTaskRow key={task.id} task={task} list={listFor(task)} onPatch={onPatch} onOpen={onOpen} />
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        </Panel>
-      </div>
+            <div className="px-2 pb-3">
+              {/* Nothing to draw rather than nothing on the day: with Finished
+                  narrowed to the blocks (above), a day holding only untimed
+                  finished work has three empty groups and no rows, and an empty
+                  box says less than a sentence does. */}
+              {mustDo.length + optional.length + finished.length === 0 ? (
+                <p className="px-5 py-8 text-[13px] text-gray-400 text-center">
+                  Nothing on today. Re-plan to put something on it.
+                </p>
+              ) : (
+                <>
+                  {mustDo.length > 0 && (
+                    <>
+                      <GroupLabel count={mustDo.length}>Must finish</GroupLabel>
+                      {mustDo.map(task => (
+                        <DayTaskRow
+                          key={task.id}
+                          task={task}
+                          list={listFor(task)}
+                          onPatch={onPatch}
+                          onOpen={onOpen}
+                          onRemove={onRemoveFromToday}
+                        />
+                      ))}
+                    </>
+                  )}
+
+                  {optional.length > 0 && (
+                    <div className={mustDo.length > 0 ? 'mt-2 pt-1 border-t border-gray-100' : ''}>
+                      <GroupLabel count={optional.length}>If there&rsquo;s time</GroupLabel>
+                      {optional.map(task => (
+                        <DayTaskRow
+                          key={task.id}
+                          task={task}
+                          list={listFor(task)}
+                          onPatch={onPatch}
+                          onOpen={onOpen}
+                          onRemove={onRemoveFromToday}
+                        />
+                      ))}
+                    </div>
+                  )}
+
+                  {finished.length > 0 && (
+                    <div className="mt-2 pt-1 border-t border-gray-100">
+                      <GroupLabel tone="emerald" count={finished.length}>Finished</GroupLabel>
+                      {finished.map(task => (
+                        <DayTaskRow key={task.id} task={task} list={listFor(task)} onPatch={onPatch} onOpen={onOpen} />
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </Panel>
+        </div>
+      )}
     </div>
   );
 }

@@ -21,9 +21,19 @@
   view holding only a SLICE of the list: `position` is one manual order per list,
   so renumbering the few cards a slice can see would shove them to the top of the
   real board, past work it never showed you. Moving a card between statuses still
-  lands (that's a field on the task, not a place in a list). Neither is used by
-  /tasks today; both are kept so a filtered rail can be added without touching
-  this file.
+  lands (that's a field on the task, not a place in a list).
+
+  That slice is what /today's finished day is (see DayView): the day, across
+  every list, drawn as the same four columns. Three more props exist for it and
+  are the whole of the difference. `listFor` puts the list's badge on each card,
+  because a board spanning thirteen projects has to say which one a card is
+  from; `sort` hands the columns a comparator of their own, because a day reads
+  in the order it happens rather than in a manual order that a slice cannot
+  keep; and `onRemove` puts a × on each card, because being IN a slice is a
+  decision — this task is today's — and a decision the day makes has to be
+  reversible from where you can see it. All three are `null` on /tasks, which is
+  exactly the board this file has always drawn: its cards ARE the list, and
+  there is nothing to take them out of.
 */
 
 import { useCallback, useMemo, useRef, useState } from 'react';
@@ -67,7 +77,7 @@ function RunHeader({ run }) {
 }
 
 function Column({
-  status, tasks, runs, onPatch, onOpen, onAdd, showCompleted, onToggleCompleted,
+  status, tasks, runs, listFor, onPatch, onOpen, onAdd, onRemove, showCompleted, onToggleCompleted,
   vertical = false,
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: columnId(status.key) });
@@ -77,8 +87,15 @@ function Column({
       {({ dragHandleProps }) => (
         <TaskCard
           task={task}
+          // Only when the board spans more than one list: /tasks stands inside
+          // one, so the badge would be the same word on every card there.
+          list={listFor ? listFor(task) : null}
           onPatch={onPatch}
           onOpen={onOpen}
+          // Only where being on this board is a decision you can take back —
+          // /today's day, not /tasks' list. See TaskCard.
+          onRemove={onRemove}
+          removeLabel="Take off today"
           dragHandleProps={dragHandleProps}
           dense={vertical}
           compact
@@ -134,7 +151,8 @@ function Column({
 }
 
 export default function TaskBoardView({
-  tasks, clusterBy = null, sortBy = 'priority', onPatch, onOpen, onAdd, onDragCommit,
+  tasks, clusterBy = null, sortBy = 'priority', sort: sortOverride = null, listFor = null,
+  onPatch, onOpen, onAdd, onRemove = null, onDragCommit,
   showCompleted, onToggleCompleted, vertical = false, reorderable = true,
 }) {
   const [draftTasks, setDraftTasks] = useState(null);
@@ -150,7 +168,7 @@ export default function TaskBoardView({
     grouped column would re-sort its runs back into drag order underneath the
     sort you chose.
   */
-  const sort = boardSort(sortBy);
+  const sort = sortOverride || boardSort(sortBy);
   // An order of your own is one a drag can still rearrange. Any other is the
   // board telling you where a card goes, and a within-column drop under it
   // would be undone by the next render.
@@ -242,9 +260,11 @@ export default function TaskBoardView({
             status={status}
             tasks={columnTasks}
             runs={runs}
+            listFor={listFor}
             onPatch={onPatch}
             onOpen={onOpen}
             onAdd={onAdd}
+            onRemove={onRemove}
             showCompleted={showCompleted}
             onToggleCompleted={status.key === 'completed' ? onToggleCompleted : null}
             vertical={vertical}
