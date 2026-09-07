@@ -26,6 +26,7 @@ import {
   withBlockHeader, withNoteDigest, withoutBlockHeader,
 } from '../src/lib/googleEvents.js';
 import { normalizeTask } from '../src/lib/tasks.js';
+import { addDaysISO } from '../src/lib/dates.js';
 
 const TZ = 'America/New_York';
 const DATE = '2026-09-03';
@@ -846,4 +847,18 @@ test('the deadline stands on its own when the task is in no list', () => {
 
 test('a deadline in another year says which', () => {
   assert.equal(blockHeader('', '2027-01-04', DATE), '📅 Due Mon, Jan 4, 2027');
+});
+
+test('the three deadlines that decide the day are words, not dates', () => {
+  // Read against the day the block is ON, so the block still means what it
+  // meant when it was written, whenever you open it.
+  assert.equal(blockHeader('', DATE, DATE), '📅 DUE TODAY');
+  assert.equal(blockHeader('', addDaysISO(DATE, 1), DATE), '📅 DUE TOMORROW');
+  assert.equal(blockHeader('', addDaysISO(DATE, -1), DATE), '📅 LATE');
+  assert.equal(blockHeader('', addDaysISO(DATE, -40), DATE), '📅 LATE');
+  // Anything further out is a date, because "in four days" is not a thing you
+  // can act on from a calendar.
+  assert.equal(blockHeader('', addDaysISO(DATE, 4), DATE), '📅 Due Mon, Sep 7');
+  // And it still sits beside the list.
+  assert.equal(blockHeader('Thesis', DATE, DATE), '📋 Thesis · 📅 DUE TODAY');
 });

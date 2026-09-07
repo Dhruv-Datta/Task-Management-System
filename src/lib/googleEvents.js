@@ -63,7 +63,7 @@
 
 import {
   DAY_WINDOW_END, MINUTES_PER_DAY, addDaysISO, clockToMinutes, dayClock, dayMinutes,
-  formatDateLong,
+  formatDateLong, todayISO,
 } from './dates.js';
 import { DEFAULT_BLOCK_MINUTES, normalizeDailyPriority, normalizeEstimate } from './tasks.js';
 
@@ -704,30 +704,59 @@ export const LIST_MARK = '📋';
   when the essay is owed on Wednesday. The app draws that date on every row it
   can; a calendar three feet away on your phone knew nothing about it.
 
-  So it rides on the same line as the list, under its own mark, and it is
-  written ABSOLUTELY — "Sat, Aug 22", never "tomorrow". A relative word is true
-  on the day it is written and a lie every day after, and an event sits in your
-  calendar long after the day it was pushed.
+  So it rides on the same line as the list, under its own mark — and it is said
+  in the words you would use, because the three deadlines that change what you
+  do today are not dates, they are verdicts:
 
-  Only when there IS one. Most tasks have no deadline, and "Due: none" is a line
+    LATE           it was owed before the day this block sits on. How late is a
+                   question for the app; on a calendar the only thing worth a
+                   line is that you are past it.
+    DUE TODAY      it is owed on the day of this block. The one that decides
+                   whether this hour is optional.
+    DUE TOMORROW   the next morning's problem, which is tonight's decision.
+
+  Anything further out is a DATE, spelled out and absolute — "Sat, Aug 22",
+  never "in five days". A relative word is true on the day it is written and a
+  lie every day after, and an event sits in your calendar long after the day it
+  was pushed. The three above survive that because they are anchored to the
+  block's OWN day rather than to the clock: an event on the 3rd saying DUE TODAY
+  still means "owed on the 3rd" whenever you read it, which is what it meant
+  when it was written.
+
+  Only when there IS a deadline. Most tasks have none, and "Due: none" is a line
   of noise on every block in the day.
 */
 export const DUE_MARK = '📅';
 
 /**
+ * The deadline as the block should say it, relative to the day the block is on.
+ *
+ * `today` is that day — the date being pushed, not the real clock — so the
+ * wording is fixed at the moment the block is written and stays true for it.
+ */
+export function dueHeader(due, today = todayISO()) {
+  const day = String(due || '').trim();
+  if (!day) return '';
+  if (day < today) return `${DUE_MARK} LATE`;
+  if (day === today) return `${DUE_MARK} DUE TODAY`;
+  if (day === addDaysISO(today, 1)) return `${DUE_MARK} DUE TOMORROW`;
+  return `${DUE_MARK} Due ${formatDateLong(day, today)}`;
+}
+
+/**
  * The line above your notes: where the work came from, and when it is owed.
  * '' when it is neither — an undated task in no list has no header at all.
  *
- * `today` only decides whether the year is spelled out (see `formatDateLong`),
- * and the caller passes the day being pushed rather than the real clock: a day
- * sent in December carrying a January deadline should say which January.
+ * `today` is what the deadline is read against (see `dueHeader`), and the push
+ * passes the day being written rather than the real clock: a block on the 3rd
+ * should say what its deadline meant on the 3rd, whenever it is read.
  */
-export function blockHeader(list, due = null, today = null) {
+export function blockHeader(list, due = null, today = todayISO()) {
   const parts = [];
   const name = String(list || '').trim();
   if (name) parts.push(`${LIST_MARK} ${name}`);
-  const when = due ? formatDateLong(due, today || due) : '';
-  if (when) parts.push(`${DUE_MARK} Due ${when}`);
+  const when = dueHeader(due, today);
+  if (when) parts.push(when);
   return parts.join(' · ');
 }
 
