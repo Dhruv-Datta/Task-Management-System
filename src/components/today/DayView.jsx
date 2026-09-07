@@ -114,6 +114,27 @@ export default function DayView({
   const mustDo = [...day.commitments].sort(compareTasks);
   const optional = [...day.optional].sort(compareTasks);
 
+  /*
+    FINISHED, AS THE CALENDAR KNOWS IT: what had an hour on this day's grid and
+    got done.
+
+    Not everything the day counts as finished. A task that is late lands on
+    today whether you asked for it or not — that is the whole point of `owed`
+    (see lib/agenda) — and it gets a `planned_date` of today the moment the page
+    catches the column up. Tick one of those off from anywhere in the app and it
+    used to appear here, under a heading that reads as a record of the day you
+    planned, having never been part of it.
+
+    A block is the thing that says you did plan it: you gave it an hour, on this
+    grid, beside everything else. So this list is the blocks you struck through,
+    which is exactly what the column next to it is showing.
+
+    The header above still counts the whole day — everything on today, finished
+    or not, timed or not — because that number is about the day and this list is
+    about the calendar.
+  */
+  const finished = day.done.filter(task => task.scheduled_start);
+
   const placed = day.open.filter(task => task.scheduled_start).length;
   const left = day.open.length;
 
@@ -215,7 +236,11 @@ export default function DayView({
           />
 
           <div className="px-2 pb-3">
-            {day.planned.length === 0 ? (
+            {/* Nothing to draw rather than nothing on the day: with Finished
+                narrowed to the blocks (above), a day holding only untimed
+                finished work has three empty groups and no rows, and an empty
+                box says less than a sentence does. */}
+            {mustDo.length + optional.length + finished.length === 0 ? (
               <p className="px-5 py-8 text-[13px] text-gray-400 text-center">
                 Nothing on today. Re-plan to put something on it.
               </p>
@@ -239,10 +264,10 @@ export default function DayView({
                   </div>
                 )}
 
-                {day.done.length > 0 && (
+                {finished.length > 0 && (
                   <div className="mt-2 pt-1 border-t border-gray-100">
-                    <GroupLabel tone="emerald" count={day.done.length}>Finished</GroupLabel>
-                    {day.done.map(task => (
+                    <GroupLabel tone="emerald" count={finished.length}>Finished</GroupLabel>
+                    {finished.map(task => (
                       <DayTaskRow key={task.id} task={task} list={listFor(task)} onPatch={onPatch} onOpen={onOpen} />
                     ))}
                   </div>
