@@ -70,6 +70,7 @@ import { ScheduleChip } from './PlanControls';
 */
 const TITLE_LINE = 'h-[18px]';
 
+
 /*
   THE TASK ITSELF, IN FLIGHT: what is drawn under the cursor between the grip
   and the drop (the page's DragOverlay renders it).
@@ -134,16 +135,34 @@ export default function TodayRow({
         />
       )}
 
-      {/* The grip holds its width whether or not it is showing, so nothing
-          shifts sideways when you point at a row. */}
+      {/*
+        THE GRIP, AND WHY IT IS BIGGER THAN IT LOOKS.
+
+        The dots are the same dots. What changed is the area around them: it is
+        the FULL HEIGHT of the row (padding included, hence the -my-1 py-1) and
+        it runs right, invisibly, until the priority marks start — so the thing
+        you are aiming at when you go to drag a task onto the timeline is a
+        block roughly the size of a fingertip rather than a 13-pixel glyph on
+        the first line of a two-line row.
+
+        NOTHING IS DRAWN FOR IT. The dots are the whole of what you see; the
+        rest of the block is empty space that happens to be draggable, and the
+        negative right margin pulls it back under its neighbour so the row is
+        spaced exactly as it was — the dots still sit a few pixels from the !!!.
+        A handle with a box around it is a second grey rectangle inside a hover
+        that is already grey, on a column of a dozen rows.
+
+        It holds its width whether or not it is showing, so nothing shifts
+        sideways when you point at a row.
+      */}
       <span
         {...attributes}
         {...listeners}
         onClick={stop}
         title="Drag onto the timeline"
-        className={`flex-shrink-0 flex items-center ${TITLE_LINE} text-gray-300 opacity-0 group-hover:opacity-100 hover:text-gray-600 cursor-grab active:cursor-grabbing transition-all`}
+        className="flex-shrink-0 self-stretch -my-1 py-1 -mr-3 w-[26px] flex items-center text-gray-300 opacity-0 group-hover:opacity-100 hover:text-gray-600 cursor-grab active:cursor-grabbing transition-all"
       >
-        <GripVertical size={13} />
+        <GripVertical size={15} />
       </span>
 
       {showStatus && (
