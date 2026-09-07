@@ -53,9 +53,9 @@ function UnplacedRow({ task, listFor, onPatch, onOpen, onSchedule, onRemoveFromT
 }
 
 export default function CalendarStep({
-  day, timeline, events, nowMinutes, listFor, canvasRef, dragPreview,
+  day, timeline, nowMinutes, listFor, canvasRef, dragPreview,
   onPatch, onOpen, onSchedule, onRemoveFromToday, onSetHalf,
-  onUnschedule, onPlaceTask, onPlaceEvent, onPlaceExternal, onEditEvent, onCreateEvent,
+  onUnschedule, onPlaceTask, onPlaceEvent, onPlaceExternal, onCreateEvent,
   onTagBlock, onRenameBlock, onDescribeBlock, onDeleteBlock, tags,
   googleControl = null,
 }) {
@@ -95,7 +95,6 @@ export default function CalendarStep({
     <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(320px,420px)] gap-5 items-start">
       <Timeline
         timeline={timeline}
-        events={events}
         nowMinutes={nowMinutes}
         canvasRef={canvasRef}
         onOpenTask={onOpen}
@@ -103,7 +102,6 @@ export default function CalendarStep({
         onPlaceTask={onPlaceTask}
         onPlaceEvent={onPlaceEvent}
         onPlaceExternal={onPlaceExternal}
-        onEditEvent={onEditEvent}
         onCreateEvent={onCreateEvent}
         onTagBlock={onTagBlock}
         onRenameBlock={onRenameBlock}

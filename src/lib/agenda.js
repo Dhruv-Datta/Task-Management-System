@@ -555,6 +555,14 @@ export function dayTimeline(tasks, events = [], today = todayISO(), external = [
       // Where the work came from. Only a task has one — a commitment is not in
       // a list, and somebody else's meeting is not in yours.
       list: (listName ? String(listName(task) || '') : '').trim(),
+      /*
+        Whether you are COMMITTING to finish it today, which the block wears as
+        the star (see MUST_DO_STAR in lib/googleEvents). It is a flag and not a
+        star baked into the title, because the title is the task's own — it is
+        what the block menu renames and what a rename writes back — and a mark
+        that leaked into it would be saved as part of the name.
+      */
+      mustDo: normalizeDailyPriority(task.daily_priority) === 'must_do',
       // The tag, in the same place on all three kinds of block, so the grid can
       // colour one without first asking what it is.
       labelId: task.google_label_id || null,

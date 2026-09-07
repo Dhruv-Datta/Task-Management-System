@@ -96,7 +96,7 @@ import PlanFlow from '@/components/today/PlanFlow';
 import ProjectPickerPanel from '@/components/today/ProjectPickerPanel';
 import { TaskDragCard } from '@/components/today/TodayRow';
 import { PX_PER_MINUTE } from '@/components/today/Timeline';
-import { EventDialog, ScheduleDialog } from '@/components/today/DayForms';
+import { ScheduleDialog } from '@/components/today/DayForms';
 
 // A tab left open in the background goes stale, and this is the one page you
 // would leave open all day. Cheap enough to just re-read when you come back to
@@ -156,7 +156,6 @@ export default function TodayPage() {
   const [openTaskId, setOpenTaskId] = useState(null);
   const [composer, setComposer] = useState(null);        // null | defaults object
   const [scheduling, setScheduling] = useState(null);    // null | task id
-  const [eventDraft, setEventDraft] = useState(null);    // null | { event }
 
   /*
     THE GOOGLE HALF, in three pieces.
@@ -1130,7 +1129,9 @@ export default function TodayPage() {
     setDragPreview(prev => (
       prev && prev.start === start && prev.minutes === minutes
         ? prev
-        : { start, minutes, title: task.title }
+        // The star travels with the preview, so the ghost is the block it is
+        // about to be rather than a paler version of a different one.
+        : { start, minutes, title: task.title, mustDo: task.daily_priority !== 'optional' }
     ));
   }, [dropMinutes, tasksRef]);
 
@@ -1362,7 +1363,6 @@ export default function TodayPage() {
         <CalendarStep
           day={day}
           timeline={timeline}
-          events={events}
           nowMinutes={nowMinutes}
           listFor={listFor}
           canvasRef={canvasRef}
@@ -1380,7 +1380,6 @@ export default function TodayPage() {
           onDescribeBlock={describeBlock}
           onDeleteBlock={deleteBlock}
           tags={tags}
-          onEditEvent={event => setEventDraft({ event })}
           onCreateEvent={saveEvent}
           dragPreview={dragPreview}
           googleControl={googleControl}
@@ -1473,7 +1472,6 @@ export default function TodayPage() {
               dateLine={dateLine}
               summary={summary}
               timeline={timeline}
-              events={events}
               nowMinutes={nowMinutes}
               listFor={listFor}
               canvasRef={canvasRef}
@@ -1491,7 +1489,6 @@ export default function TodayPage() {
               onDescribeBlock={describeBlock}
               onDeleteBlock={deleteBlock}
               tags={tags}
-              onEditEvent={event => setEventDraft({ event })}
               onCreateEvent={saveEvent}
               dragPreview={dragPreview}
               googleControl={googleControl}
@@ -1582,21 +1579,6 @@ export default function TodayPage() {
           onSave={schedule}
           onUnschedule={unschedule}
           onClose={() => setScheduling(null)}
-        />
-      )}
-
-      {/*
-        EDITING a commitment, and only editing one: it is made on the grid, by
-        drawing it (see Timeline), so there is no longer any way — or reason —
-        to open this box empty. What it is for is the two numbers, typed: a
-        class that starts at 9:05 is a thing you say, not a thing you drag.
-      */}
-      {eventDraft && (
-        <EventDialog
-          event={eventDraft.event}
-          onSave={saveEvent}
-          onRemove={removeEvent}
-          onClose={() => setEventDraft(null)}
         />
       )}
 

@@ -1,14 +1,16 @@
 'use client';
 
 /*
-  The two small forms the day is built with: SCHEDULE (put a task at a time) and
-  COMMITMENT (the class / lunch / meeting the day already contains).
+  SCHEDULE: put a task at a time, in words.
 
-  They are one shape because they are one question asked about two things: when
-  does it start, and how long is it. Dragging says both at once and says them
-  roughly, which is right for "some time this afternoon" and useless for "2:15
-  for forty-five minutes"; this is the other half of that pair, and every field
-  in it is typed by you.
+  Dragging says the start and the length at once and says them roughly, which is
+  right for "some time this afternoon" and useless for "2:15 for forty-five
+  minutes"; this is the other half of that pair, and every field in it is typed
+  by you.
+
+  It used to have a twin for commitments. A commitment is now drawn on the grid
+  and named in the block itself (see Timeline), which is the whole of making
+  one — so the form for it, and the row of chips that opened it, are gone.
 
   Deliberately NOT the big two-column DialogShell the task dialogs use. That one
   is for the object itself, and this is for two numbers about it: a box that
@@ -18,7 +20,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Clock, Trash2, X } from 'lucide-react';
+import { Clock, X } from 'lucide-react';
 import { ESTIMATES } from '@/lib/tasks';
 import { clockToMinutes, dayClock, dayMinutes, formatClockRange, formatDuration } from '@/lib/dates';
 import { OVERLAY_Z } from '@/components/tasks/TaskPickers';
@@ -185,85 +187,6 @@ export function ScheduleDialog({ task, defaultStart, onSave, onUnschedule, onClo
           This one has no estimate yet — the length you pick here is only its block.
         </p>
       )}
-    </SmallDialog>
-  );
-}
-
-/**
- * A fixed commitment, EDITED. It is not a task and never becomes one: no
- * status, no due date, no list, nothing to tick off. It is here so the timeline
- * can draw the day you actually have, rather than the part of it that happens
- * to be work.
- *
- * Making one is not this box's job any more and there is no empty version of
- * it: a commitment is drawn on the grid, at the hour you drew it, and named in
- * the block itself (see Timeline). What is left for a form is the case the
- * gesture is bad at — a class that starts at 9:05 and runs fifty minutes, which
- * you type rather than aim at.
- */
-export function EventDialog({ event, onSave, onRemove, onClose }) {
-  const [title, setTitle] = useState(event.title || '');
-  const [start, setStart] = useState(event.start);
-  const [minutes, setMinutes] = useState(event.minutes);
-
-  const save = () => {
-    const name = title.trim();
-    if (!name || clockToMinutes(start) === null) return;
-    /*
-      The tag and the note are carried through untouched. Both are set from the
-      timeline's right-click menu and neither has a control here, so a save that
-      rebuilt the event from this form's fields alone would silently strip
-      something you wrote somewhere else.
-    */
-    onSave({
-      id: event.id,
-      title: name,
-      start,
-      minutes,
-      labelId: event.labelId || null,
-      notes: event.notes || '',
-    });
-    onClose();
-  };
-
-  return (
-    <SmallDialog
-      title="Edit commitment"
-      onClose={onClose}
-      footer={(
-        <>
-          <button
-            type="button"
-            onClick={() => { onRemove(event); onClose(); }}
-            title="Remove this commitment"
-            className="p-1.5 text-gray-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors"
-          >
-            <Trash2 size={14} />
-          </button>
-          <button
-            type="button"
-            onClick={save}
-            disabled={!title.trim()}
-            className="ml-auto text-sm font-semibold px-4 py-1.5 rounded-xl bg-gray-900 text-white hover:bg-gray-700 disabled:opacity-30 transition-colors"
-          >
-            Save
-          </button>
-        </>
-      )}
-    >
-      <label className="block mb-3">
-        <FieldLabel>What is it</FieldLabel>
-        <input
-          autoFocus
-          value={title}
-          onChange={e => setTitle(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter') save(); }}
-          placeholder="Class, lunch, standup…"
-          className={inputClass}
-        />
-      </label>
-
-      <WhenFields start={start} minutes={minutes} onStart={setStart} onMinutes={setMinutes} />
     </SmallDialog>
   );
 }

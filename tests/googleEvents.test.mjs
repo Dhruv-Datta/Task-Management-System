@@ -22,8 +22,8 @@ import {
   isCommitmentPushId, isValidTimeZone,
   itemSignature,
   labelColor, noteDigest, noteDigestOf, normalizeExternal, normalizeExternals, normalizeLabelId,
-  normalizeLabels, normalizePushItems, pushSignature, pushTitle, wallClock, withListHeader,
-  withNoteDigest, withoutListHeader,
+  blockHeader, normalizeLabels, normalizePushItems, pushSignature, pushTitle, wallClock,
+  withBlockHeader, withNoteDigest, withoutBlockHeader,
 } from '../src/lib/googleEvents.js';
 import { normalizeTask } from '../src/lib/tasks.js';
 
@@ -302,7 +302,7 @@ test('only tasks planned for the day AND given an hour are sent', () => {
   // Starred, because `normalizeTask` puts an unstated task on the day as
   // must_do — a deadline is a commitment by default (see DEFAULT_DAILY_PRIORITY).
   assert.deepEqual(items, [{
-    taskId: '1', title: `Memo ${MUST_DO_STAR}`, start: '11:00', minutes: 60, labelId: null, notes: '',
+    taskId: '1', title: `${MUST_DO_STAR} Memo`, start: '11:00', minutes: 60, labelId: null, notes: '',
   }]);
 });
 
@@ -363,24 +363,24 @@ test('the list header comes back off exactly as it went on', () => {
   // The round trip that matters: what we send, read back, is the notes alone —
   // so a description edited in Google is adopted without the header, and the
   // next push does not put a second one in front of it.
-  const sent = withListHeader('Thesis', 'Ask about the deposit.');
-  assert.equal(withoutListHeader(sent), 'Ask about the deposit.');
-  assert.equal(withoutListHeader(withListHeader('Thesis', '')), '');
-  assert.equal(withListHeader('Thesis', withoutListHeader(sent)), sent);
+  const sent = withBlockHeader(blockHeader('Thesis'), 'Ask about the deposit.');
+  assert.equal(withoutBlockHeader(sent), 'Ask about the deposit.');
+  assert.equal(withoutBlockHeader(withBlockHeader(blockHeader('Thesis'), '')), '');
+  assert.equal(withBlockHeader(blockHeader('Thesis'), withoutBlockHeader(sent)), sent);
 
   // A note edited in Google keeps its own blank lines; only ours is taken.
   assert.equal(
-    withoutListHeader('📋 Thesis\n\nFirst.\n\nSecond.'),
+    withoutBlockHeader('📋 Thesis\n\nFirst.\n\nSecond.'),
     'First.\n\nSecond.'
   );
 
   // A list renamed since the push is still our header, and still comes off.
-  assert.equal(withoutListHeader('📋 Something else\n\nNote.'), 'Note.');
+  assert.equal(withoutBlockHeader('📋 Something else\n\nNote.'), 'Note.');
 
   // Yours, and left alone: no header, and a note that merely starts with words.
-  assert.equal(withoutListHeader('Note.'), 'Note.');
-  assert.equal(withoutListHeader('Thesis: note.'), 'Thesis: note.');
-  assert.equal(withListHeader('', 'Note.'), 'Note.');
+  assert.equal(withoutBlockHeader('Note.'), 'Note.');
+  assert.equal(withoutBlockHeader('Thesis: note.'), 'Thesis: note.');
+  assert.equal(withBlockHeader(blockHeader(''), 'Note.'), 'Note.');
 });
 
 test('editing the notes is a change the calendar has to be told about', () => {
@@ -586,7 +586,7 @@ test('a must-do task carries a star into Google, and an optional one does not', 
   const [must] = dayPushItems([
     mk({ id: '1', title: 'Essay', planned_date: DATE, scheduled_start: '09:00', daily_priority: 'must_do' }),
   ], DATE);
-  assert.equal(must.title, `Essay ${MUST_DO_STAR}`);
+  assert.equal(must.title, `${MUST_DO_STAR} Essay`);
 
   const [maybe] = dayPushItems([
     mk({ id: '2', title: 'Reading', planned_date: DATE, scheduled_start: '09:00', daily_priority: 'optional' }),
@@ -594,8 +594,8 @@ test('a must-do task carries a star into Google, and an optional one does not', 
   assert.equal(maybe.title, 'Reading');
 });
 
-test('the star is appended once, however many times a day is sent', () => {
-  assert.equal(pushTitle(`Essay ${MUST_DO_STAR}`, true), `Essay ${MUST_DO_STAR}`);
+test('the star goes on once, however many times a day is sent', () => {
+  assert.equal(pushTitle(`${MUST_DO_STAR} Essay`, true), `${MUST_DO_STAR} Essay`);
   // And it is not a permanent mark: unstarring takes it off again, because the
   // title is rebuilt from the task rather than edited in place.
   assert.equal(pushTitle('Essay', false), 'Essay');
@@ -804,4 +804,46 @@ test('the day carries its commitments to Google as well as its tasks', () => {
 test('a nameless commitment still has a name in your calendar', () => {
   const [only] = dayPushItems([], DATE, null, [{ id: 'e', title: '   ', start: '09:00', minutes: 30 }]);
   assert.equal(only.title, 'Commitment');
+});
+
+test('a block tells Google when the work is owed, not just where it came from', () => {
+  const [item] = dayPushItems(
+    [mk({
+      id: '1',
+      title: 'Read chapter 4',
+      notes: 'The long one.',
+      planned_date: DATE,
+      due_date: '2026-09-10',
+      scheduled_start: '09:00',
+      scheduled_minutes: 60,
+    })],
+    DATE,
+    () => 'Thesis'
+  );
+
+  // One line, both facts, absolute: an event outlives the day it was pushed,
+  // and "tomorrow" would be wrong by the morning.
+  assert.equal(item.notes, '📋 Thesis · 📅 Due Thu, Sep 10\n\nThe long one.');
+  // And it comes straight back off, so the note adopted from Google is the note.
+  assert.equal(withoutBlockHeader(item.notes), 'The long one.');
+});
+
+test('the deadline stands on its own when the task is in no list', () => {
+  const [item] = dayPushItems(
+    [mk({ id: '1', planned_date: DATE, due_date: '2026-09-10', scheduled_start: '09:00' })],
+    DATE
+  );
+  assert.equal(item.notes, '📅 Due Thu, Sep 10');
+  assert.equal(withoutBlockHeader(item.notes), '');
+
+  // No list and no deadline is no header at all.
+  const [bare] = dayPushItems(
+    [mk({ id: '2', planned_date: DATE, notes: 'Just this.', scheduled_start: '09:00' })],
+    DATE
+  );
+  assert.equal(bare.notes, 'Just this.');
+});
+
+test('a deadline in another year says which', () => {
+  assert.equal(blockHeader('', '2027-01-04', DATE), '📅 Due Mon, Jan 4, 2027');
 });

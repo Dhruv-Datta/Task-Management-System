@@ -103,9 +103,9 @@ function DayTaskRow({ task, list, onPatch, onOpen }) {
 }
 
 export default function DayView({
-  day, dateLine, summary, timeline, events, nowMinutes, listFor, canvasRef, refreshing,
+  day, dateLine, summary, timeline, nowMinutes, listFor, canvasRef, refreshing,
   dragPreview, onRefresh, onReplan, onPatch, onOpen, onUnschedule, onPlaceTask, onPlaceEvent,
-  onPlaceExternal, onEditEvent, onCreateEvent, onTagBlock, onRenameBlock, onDescribeBlock,
+  onPlaceExternal, onCreateEvent, onTagBlock, onRenameBlock, onDescribeBlock,
   onDeleteBlock, tags,
   googleControl = null, googleSync = null,
 }) {
@@ -189,7 +189,6 @@ export default function DayView({
       <div className="mt-4 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(300px,400px)] gap-5 items-start">
         <Timeline
           timeline={timeline}
-          events={events}
           nowMinutes={nowMinutes}
           canvasRef={canvasRef}
           onOpenTask={onOpen}
@@ -197,7 +196,6 @@ export default function DayView({
           onPlaceTask={onPlaceTask}
           onPlaceEvent={onPlaceEvent}
           onPlaceExternal={onPlaceExternal}
-          onEditEvent={onEditEvent}
           onCreateEvent={onCreateEvent}
           onTagBlock={onTagBlock}
           onRenameBlock={onRenameBlock}

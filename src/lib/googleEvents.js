@@ -63,6 +63,7 @@
 
 import {
   DAY_WINDOW_END, MINUTES_PER_DAY, addDaysISO, clockToMinutes, dayClock, dayMinutes,
+  formatDateLong,
 } from './dates.js';
 import { DEFAULT_BLOCK_MINUTES, normalizeDailyPriority, normalizeEstimate } from './tasks.js';
 
@@ -653,15 +654,18 @@ export function normalizeExternals(list) {
 
   Google gives an event a title and a colour and nothing else to say this with.
   The colour is already spoken for (it is the tag, see `labelColor`), so the
-  title carries it: one star, appended, and only on the copy that goes to
-  Google. The task keeps its own title exactly as you typed it — a mark that
-  leaked back into the task list would be a second, worse copy of the star that
-  is already on the row.
+  title carries it: one star, in front of the name, and only on the copy that
+  goes to Google. The task keeps its own title exactly as you typed it — a mark
+  that leaked back into the task list would be a second, worse copy of the star
+  that is already on the row.
 
-  Appended rather than prefixed, because a calendar draws a block narrow and
-  truncates from the RIGHT: a leading star would survive and eat the first
-  character of every name, where a trailing one is simply the first thing to go
-  when there is no room for it, which is the right thing to lose.
+  IN FRONT, which is the same choice this app's own timeline makes (see
+  BlockFace) and for the same reason: the stars line up in a column down the
+  day, so "what have I promised today" is one glance rather than a read of every
+  block. A calendar truncates a narrow block from the right, so a trailing star
+  is the first thing to go — and a mark that disappears exactly on the busiest
+  blocks is a mark that is not there. It costs one character of the name on a
+  block too narrow to have shown the whole of it anyway.
 */
 export const MUST_DO_STAR = '⭐';
 
@@ -684,39 +688,71 @@ export const MUST_DO_STAR = '⭐';
   AND IT COMES BACK OFF. The description is the task's notes and the two are
   edited from both ends (see `adoptGoogleNotes`), so a description read back out
   of Google has to be the notes ALONE — otherwise the header is adopted into the
-  task, and the next push puts a second one in front of it. `withoutListHeader`
+  task, and the next push puts a second one in front of it. `withoutBlockHeader`
   is the exact inverse, and it is deliberately shape-based rather than
   name-based: a list renamed between the push and the read is still the header
   we wrote, and taking it off is still the right thing to do.
 */
 export const LIST_MARK = '📋';
 
-/** The list a block came from, as its description's first line — '' for none. */
-export function listHeader(list) {
+/*
+  AND WHEN IT IS OWED, beside it.
+
+  A block says when you are DOING the work. The due date is the other date, and
+  it is the one that decides whether an hour you are about to give away is an
+  hour you can afford — "Read chapter 4, Tuesday 2pm" is a different proposition
+  when the essay is owed on Wednesday. The app draws that date on every row it
+  can; a calendar three feet away on your phone knew nothing about it.
+
+  So it rides on the same line as the list, under its own mark, and it is
+  written ABSOLUTELY — "Sat, Aug 22", never "tomorrow". A relative word is true
+  on the day it is written and a lie every day after, and an event sits in your
+  calendar long after the day it was pushed.
+
+  Only when there IS one. Most tasks have no deadline, and "Due: none" is a line
+  of noise on every block in the day.
+*/
+export const DUE_MARK = '📅';
+
+/**
+ * The line above your notes: where the work came from, and when it is owed.
+ * '' when it is neither — an undated task in no list has no header at all.
+ *
+ * `today` only decides whether the year is spelled out (see `formatDateLong`),
+ * and the caller passes the day being pushed rather than the real clock: a day
+ * sent in December carrying a January deadline should say which January.
+ */
+export function blockHeader(list, due = null, today = null) {
+  const parts = [];
   const name = String(list || '').trim();
-  return name ? `${LIST_MARK} ${name}` : '';
+  if (name) parts.push(`${LIST_MARK} ${name}`);
+  const when = due ? formatDateLong(due, today || due) : '';
+  if (when) parts.push(`${DUE_MARK} Due ${when}`);
+  return parts.join(' · ');
 }
 
-/** The description Google is given: where it came from, then what you wrote. */
-export function withListHeader(list, notes) {
-  const header = listHeader(list);
+/** The description Google is given: what this block is, then what you wrote. */
+export function withBlockHeader(header, notes) {
+  const line = String(header || '').trim();
   const body = String(notes || '');
-  if (!header) return body;
-  return body.trim() ? `${header}\n\n${body}` : header;
+  if (!line) return body;
+  return body.trim() ? `${line}\n\n${body}` : line;
 }
 
 /**
  * The same description with our header taken back off — the inverse of
- * `withListHeader`, and the thing that keeps the round trip from accumulating.
+ * `withBlockHeader`, and the thing that keeps the round trip from accumulating.
  *
- * Only ever the FIRST line, and only when it is one of ours. A note of your own
- * that happens to mention a list is untouched, and a header you deleted in
- * Google stays deleted (until the next push writes the real one back, which is
- * the app being right about where the task lives rather than an edit war).
+ * Only ever the FIRST line, and only when it is one of ours — which is either
+ * of our two marks, in either order, since a task with no list is a header that
+ * begins with the deadline. A note of your own that happens to mention a list
+ * is untouched, and a header you deleted in Google stays deleted (until the
+ * next push writes the real one back, which is the app being right about where
+ * the task lives rather than an edit war).
  */
-export function withoutListHeader(text) {
+export function withoutBlockHeader(text) {
   const body = String(text || '');
-  if (!body.startsWith(`${LIST_MARK} `)) return body;
+  if (!body.startsWith(`${LIST_MARK} `) && !body.startsWith(`${DUE_MARK} `)) return body;
   const brk = body.indexOf('\n');
   // Nothing but the header: the task has no notes, which is exactly what a
   // block with no notes should read back as.
@@ -725,12 +761,12 @@ export function withoutListHeader(text) {
   return body.slice(brk + 1).replace(/^\r?\n/, '');
 }
 
-/** A block's title as Google should hold it: yours, plus the star if you owe it today. */
+/** A block's title as Google should hold it: the star if you owe it today, then yours. */
 export function pushTitle(title, mustDo) {
   const name = String(title || '').trim() || 'Untitled task';
-  // Idempotent: a title that already ends in one is not given a second.
-  if (!mustDo || name.endsWith(MUST_DO_STAR)) return name;
-  return `${name} ${MUST_DO_STAR}`;
+  // Idempotent: a title that already starts with one is not given a second.
+  if (!mustDo || name.startsWith(MUST_DO_STAR)) return name;
+  return `${MUST_DO_STAR} ${name}`;
 }
 
 /**
@@ -827,9 +863,10 @@ export function dayPushItems(tasks, date, listName = null, events = []) {
           the one line that says where the work came from cannot be the line
           that falls off the end.
         */
-        notes: clipDescription(
-          withListHeader(listName ? listName(task) : '', String(task.notes || ''))
-        ),
+        notes: clipDescription(withBlockHeader(
+          blockHeader(listName ? listName(task) : '', task.due_date, date),
+          String(task.notes || '')
+        )),
       };
     })
     .concat(commitments)

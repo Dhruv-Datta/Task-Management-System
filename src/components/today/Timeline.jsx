@@ -86,10 +86,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { X } from 'lucide-react';
 import {
-  DAY_WINDOW_END, MINUTES_PER_DAY, clockToMinutes, dayClock, dayMinutes, formatClock,
-  formatClockRange, formatHourLabel,
+  DAY_WINDOW_END, clockToMinutes, dayClock, dayMinutes, formatClock, formatClockRange,
+  formatHourLabel,
 } from '@/lib/dates';
-import { descriptionPreview, labelColor, listHeader } from '@/lib/googleEvents';
+import { MUST_DO_STAR, blockHeader, descriptionPreview, labelColor } from '@/lib/googleEvents';
 import { TASK_COLOR, inkOn } from '@/lib/colors';
 import { Panel, PanelHead } from '@/components/dashboard/Panel';
 import BlockMenu from './BlockMenu';
@@ -241,7 +241,7 @@ function descriptionOf(block) {
   THE SAME WORDS AS THE BLOCK DRAWS THEM: where the task came from, then what
   you wrote about it.
 
-  It is the same sentence Google is given (`withListHeader`), said in one line
+  It is the same sentence Google is given (`blockHeader`), said in one line
   instead of two, because a preview has already been collapsed to a single run
   of text and a blank line is not a thing a two-line box can spend. The point is
   the ORDER — the list first, then the note, whether or not there is a note —
@@ -252,7 +252,7 @@ function descriptionOf(block) {
   else; a preview that could be saved back would write the header into the note.
 */
 function faceTextOf(block, limit) {
-  const head = block.kind === 'task' ? listHeader(block.list) : '';
+  const head = block.kind === 'task' ? blockHeader(block.list, block.task?.due_date) : '';
   return [head, descriptionPreview(descriptionOf(block), limit)].filter(Boolean).join(' · ');
 }
 
@@ -269,14 +269,42 @@ function faceTextOf(block, limit) {
   you are checking. On a strip, where there is only ever one line, it replaces
   the name with the range for the same reason.
 */
+/*
+  THE STAR, ON THIS SIDE OF THE WIRE TOO.
+
+  A must-do block goes to Google wearing one (see `pushTitle`), because a phone
+  showing six identical boxes cannot otherwise tell the two you promised
+  yourself from the four you did not. The same is true of this grid, and it was
+  the one place the mark was missing — so a day looked different here from the
+  copy of it in your pocket, which is exactly what this app is trying not to do.
+
+  Drawn beside the name rather than appended to it: the title stays the task's
+  own string, and a rename typed into the block menu can never save the star as
+  part of the name.
+
+  IN FRONT of it, and set in the title's own size, so the stars line up in a
+  column down the day. Trailing them looked ragged and could not be fixed by
+  nudging: a trailing mark sits against the right edge, and the right edge is a
+  different place on every block — a strip pads itself less than an hour does,
+  the × beside it is a different size at each of them, and two overlapping
+  blocks are half the width of the rest. The left edge is the one line every
+  block already shares.
+*/
 function BlockFace({
-  title, start, minutes, type, strong = false, action = null, description = '', lines = 0,
+  title, start, minutes, type, star = false, strong = false, action = null,
+  description = '', lines = 0,
 }) {
   const range = formatClockRange(start, minutes);
+  // The title's own size and line box, so it sits on the same line as the name
+  // rather than riding a pixel or two above it.
+  const mark = star
+    ? <span aria-label="Must do" className={`flex-shrink-0 ${type.title}`}>{MUST_DO_STAR}</span>
+    : null;
 
   if (type === TYPE.tight) {
     return (
       <div className="flex items-start gap-1">
+        {!strong && mark}
         <span className={`flex-1 min-w-0 truncate ${type.title} ${
           strong ? 'font-bold tabular-nums' : 'font-semibold'
         }`}>
@@ -290,6 +318,7 @@ function BlockFace({
   return (
     <>
       <div className="flex items-start gap-1">
+        {mark}
         <span className={`flex-1 min-w-0 font-semibold truncate ${type.title}`}>{title}</span>
         {action}
       </div>
@@ -605,6 +634,7 @@ function Block({
         start={start}
         minutes={minutes}
         type={type}
+        star={!!block.mustDo}
         strong={moving}
         description={description}
         lines={descriptionLines}
@@ -720,6 +750,7 @@ function DropGhost({ preview, origin, fill }) {
           start={preview.start}
           minutes={preview.minutes}
           type={type}
+          star={!!preview.mustDo}
           strong
         />
       </div>
@@ -768,8 +799,8 @@ function menuSubtitle(block) {
 }
 
 export default function Timeline({
-  timeline, events, nowMinutes, canvasRef,
-  onOpenTask, onUnschedule, onPlaceTask, onPlaceEvent, onEditEvent,
+  timeline, nowMinutes, canvasRef,
+  onOpenTask, onUnschedule, onPlaceTask, onPlaceEvent,
   onPlaceExternal, onCreateEvent, onTagBlock, onRenameBlock, onDescribeBlock, onDeleteBlock,
   tags = NO_TAGS,
   dragPreview = null, googleControl = null,
@@ -1207,32 +1238,6 @@ export default function Timeline({
           />
 
           {/*
-            MIDNIGHT, said out loud.
-
-            Past this line the hour rail starts over at 12 AM, 1 AM, 2 AM — and
-            without something to mark the turn they read as the top of the day
-            rather than the far end of it. One rule and one word is enough;
-            tinting the whole band would make four hours of your evening look
-            like a disabled region.
-
-            It is drawn only when it is inside the window, which it always is
-            unless something has stretched the day past 4am tomorrow.
-          */}
-          {MINUTES_PER_DAY > timeline.startMinute && MINUTES_PER_DAY < timeline.endMinute && (
-            <div
-              aria-hidden
-              className="absolute left-0 right-0 pointer-events-none z-[15] flex items-center"
-              style={{ top: (MINUTES_PER_DAY - origin) * PX_PER_MINUTE }}
-            >
-              <span style={{ width: GUTTER }} className="shrink-0" />
-              <span className="flex-1 h-px bg-gray-300" />
-              <span className="pl-1.5 text-[9px] font-bold uppercase tracking-wider text-gray-400">
-                Tomorrow
-              </span>
-            </div>
-          )}
-
-          {/*
             Where you actually are in the day. The one moving thing on the page,
             and the reason "3h 45m left" is a different sentence at nine in the
             morning and at four in the afternoon.
@@ -1347,7 +1352,9 @@ export default function Timeline({
             // Above the description and not inside it: it is what Google is
             // told before your notes, and it is not yours to edit here — the
             // way to change it is to move the task to another list.
-            descriptionHead={menuBlock.kind === 'task' ? listHeader(menuBlock.list) : ''}
+            descriptionHead={
+              menuBlock.kind === 'task' ? blockHeader(menuBlock.list, menuBlock.task?.due_date) : ''
+            }
             labels={menuBlock.kind === 'external' && !menuBlock.external?.writable ? [] : labelsFor(menuBlock)}
             labelId={menuBlock.labelId || null}
             note={noteFor(menuBlock)}
@@ -1384,23 +1391,6 @@ export default function Timeline({
         );
       })()}
 
-      {events.length > 0 && (
-        <div className="px-5 py-2.5 border-t border-gray-100 flex items-center gap-2 flex-wrap">
-          <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Fixed</span>
-          {events.map(event => (
-            <button
-              key={event.id}
-              type="button"
-              onClick={() => onEditEvent(event)}
-              title="Edit this commitment"
-              className="inline-flex items-center gap-1.5 text-[11px] font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-full pl-2 pr-2.5 py-[3px] transition-colors"
-            >
-              <span className="tabular-nums text-gray-400">{formatClock(dayMinutes(event.start))}</span>
-              <span className="truncate max-w-[120px]">{event.title}</span>
-            </button>
-          ))}
-        </div>
-      )}
     </Panel>
   );
 }

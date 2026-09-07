@@ -7,7 +7,7 @@ import { DAY_WINDOW_END, MINUTES_PER_DAY, addDaysISO, dayClock, dayMinutes } fro
 import {
   DATE_PROPERTY, MAX_DESCRIPTION, MAX_EXTERNAL_EVENTS, TASK_ID_PROPERTY,
   commitmentPushId, daySignature, externalFromGoogle, isCommitmentPushId, itemSignature,
-  noteDigest, noteDigestOf, normalizeLabels, withNoteDigest, withoutListHeader,
+  noteDigest, noteDigestOf, normalizeLabels, withNoteDigest, withoutBlockHeader,
 } from './googleEvents.js';
 import { forgetAccessToken, getAccessToken } from './googleAuth.js';
 
@@ -659,7 +659,7 @@ export async function readPushState(supabase, date) {
   beside the event id (see `itemSignature`).
 
   The line that is not shared is the one this app puts on the front — the list
-  the task came from (`withListHeader`). It is written on every push and taken
+  the task came from and when it is owed (`blockHeader`). It is written on every push and taken
   off again here, so it lives in Google and never in your notes; the digest is
   of the WHOLE description, header and all, because that is the string the two
   sides are comparing.
@@ -765,10 +765,10 @@ export async function adoptGoogleNotes(supabase, date, blocks) {
     const { data, error } = await supabase
       .from('tasks')
       // The header this app writes on the front of every block's description
-      // (see `withListHeader`) is NOT part of the note and never becomes one.
+      // (see `withBlockHeader`) is NOT part of the note and never becomes one.
       // Adopting it would put a second one in front of it on the next push, and
       // a third on the one after that.
-      .update({ notes: withoutListHeader(item.description) })
+      .update({ notes: withoutBlockHeader(item.description) })
       .eq('id', item.taskId)
       .select('*')
       .maybeSingle();
