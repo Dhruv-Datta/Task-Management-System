@@ -19,6 +19,12 @@
   place a calendar has always kept its second sentence, and the pointer is
   already on the thing it is about.
 
+  A COMMITMENT OPENS IT WITH AN ORDINARY CLICK as well, because for a commitment
+  this is not the second sentence — it is the only one. A task's block is a view
+  of something that lives elsewhere and clicking it goes there; a commitment
+  lives nowhere else, so the menu IS the commitment, and it should not take a
+  gesture you have to know about to rename a class.
+
   THE NAME IS THE FIELD, rather than a Rename button that opens one. A menu item
   called Rename is a promise that something else will happen next, and what
   happens next is an input appearing exactly where the name already was — so the
@@ -102,8 +108,8 @@ const FIELD = 'w-full text-gray-800 bg-white border border-gray-300 rounded-lg p
  */
 export default function BlockMenu({
   point, title, subtitle, description = '', descriptionHead = '', labels = [], labelId = null,
-  note = null, readOnlyNote = null,
-  onTag, onRename, onDescribe, onDelete, onClose,
+  note = null, readOnlyNote = null, naming = false, namePlaceholder = '',
+  onTag, onRename, onDescribe, onDelete, onConfirm, confirmLabel = 'Add to the day', onClose,
 }) {
   const ref = useRef(null);
   const [pos, setPos] = useState(null);
@@ -116,7 +122,15 @@ export default function BlockMenu({
     is deliberately not "always two inputs", which would make a right-click on a
     block you only wanted to recolour look like a dialog box.
   */
-  const [editing, setEditing] = useState(null);   // null | 'title' | 'description'
+  const [editing, setEditing] = useState(naming ? 'title' : null);   // null | 'title' | 'description'
+  /*
+    EMPTY, on a block that is being named for the first time. The name it
+    carries is a placeholder — "New commitment" — and starting the field with
+    that in it would mean selecting it and deleting it before you could type,
+    which is the work the placeholder was supposed to save. Left empty and typed
+    over, the block keeps its placeholder name if you walk away, and takes yours
+    the moment you give it one.
+  */
   const [draft, setDraft] = useState('');
 
   const open = (field, value) => { setDraft(value || ''); setEditing(field); };
@@ -132,32 +146,73 @@ export default function BlockMenu({
     which is the single worst thing a click-to-edit field can do.
   */
   const commit = useCallback(() => {
+    /*
+      What it just saved, HANDED BACK as well as sent.
+
+      `onRename` is a state update in the component above, so it has not landed
+      yet when the same keystroke goes on to confirm the block (Enter names it
+      AND places it). Confirming from the parent's own copy of the name would
+      place the block under the name it had a moment ago — which, for a block
+      being named for the first time, is no name at all.
+    */
+    const saved = {};
     if (editing === 'title') {
       const name = draft.trim();
-      if (name && name !== title) onRename(name);
+      if (name && name !== title) { onRename(name); saved.title = name; }
     } else if (editing === 'description') {
-      if (draft !== description) onDescribe(draft);
+      if (draft !== description) { onDescribe(draft); saved.description = draft; }
     }
     setEditing(null);
+    return saved;
   }, [description, draft, editing, onDescribe, onRename, title]);
 
   const commitRef = useRef(commit);
   useEffect(() => { commitRef.current = commit; });
 
   /*
+    Which field is open, readable from a listener installed once — the same
+    problem `commitRef` solves, and it has to be a ref for the same reason.
+
+    It is a REF and not a dependency because of what the alternative was: the
+    Escape handler used to decide inside a `setEditing` updater and call
+    `onClose()` from in there, which runs during the render phase and closed the
+    menu by updating the timeline WHILE the menu was rendering. React says so
+    out loud ("Cannot update a component while rendering a different one"), and
+    it is right: an updater is arithmetic on state, and closing a menu is not.
+  */
+  const editingRef = useRef(editing);
+  useEffect(() => { editingRef.current = editing; });
+
+  /*
     Placed after it has been drawn, because how far it would hang off the bottom
     depends on how many tags you have and whether a field is open — neither of
-    which anything knows until it has been laid out. Measured, then flipped: up
-    when there is no room below, left when there is none to the right, the two
-    corrections every context menu makes.
+    which anything knows until it has been laid out.
+
+    FLIPPED, NOT SLID. The menu hangs down and to the right of the pointer while
+    there is room, and when there is not it goes up, or left, so the pointer
+    lands on whichever CORNER faces the space: bottom-left near the foot of the
+    window, bottom-right in the corner. Sliding it up instead — which is what
+    clamping does — keeps the corner where it was and drags the whole menu over
+    the block you just drew, so the last hour of the evening is named through a
+    box sitting on top of it. Flipped, the block stays visible and the menu
+    still touches the pointer, which is the thing that says which block this is
+    about.
+
+    The fallback, for a menu taller than the space on either side of the
+    pointer, is the old clamp: on screen beats well-placed.
   */
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
     const { width, height } = el.getBoundingClientRect();
+    const place = (at, size, extent) => {
+      if (at + size + MARGIN <= extent) return at;      // it fits after the pointer
+      if (at - size >= MARGIN) return at - size;        // flipped to before it
+      return Math.max(MARGIN, Math.min(at, extent - size - MARGIN));
+    };
     setPos({
-      left: Math.max(MARGIN, Math.min(point.x, window.innerWidth - width - MARGIN)),
-      top: Math.max(MARGIN, Math.min(point.y, window.innerHeight - height - MARGIN)),
+      left: place(point.x, width, window.innerWidth),
+      top: place(point.y, height, window.innerHeight),
     });
     // `editing` is in here because opening a field changes the menu's height,
     // and a menu that grew off the bottom of the screen is one you cannot
@@ -168,6 +223,13 @@ export default function BlockMenu({
   useEffect(() => {
     const onDown = (e) => {
       if (ref.current && ref.current.contains(e.target)) return;
+      /*
+        The block this menu is about can opt out of being "outside": a
+        commitment you are still placing is dragged and resized on the grid
+        WHILE its menu is open, and a menu that closed the moment you took hold
+        of the block would make the two impossible to use together.
+      */
+      if (e.target?.closest?.('[data-block-menu-keep]')) return;
       // Save first, then close. See `commitRef`.
       commitRef.current();
       onClose();
@@ -178,10 +240,8 @@ export default function BlockMenu({
       // Escape backs out of the field first and the menu second, which is the
       // order everything else escapes in — and it CANCELS the edit, because
       // that is the one word Escape has ever meant.
-      setEditing(prev => {
-        if (prev === null) onClose();
-        return null;
-      });
+      if (editingRef.current === null) onClose();
+      else setEditing(null);
     };
     document.addEventListener('mousedown', onDown, true);
     document.addEventListener('keydown', onKey, true);
@@ -221,8 +281,16 @@ export default function BlockMenu({
             value={draft}
             onChange={e => setDraft(e.target.value)}
             onBlur={commit}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } }}
-            className={`${FIELD} text-[12.5px] font-semibold`}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter') return;
+              e.preventDefault();
+              const saved = commit();
+              // Naming the thing IS the confirmation, where there is one to
+              // give: nobody types a name and then means "no".
+              onConfirm?.(saved);
+            }}
+            placeholder={namePlaceholder}
+            className={`${FIELD} text-[12.5px] font-semibold placeholder:font-normal placeholder:text-gray-400`}
           />
         ) : (
           /*
@@ -327,7 +395,13 @@ export default function BlockMenu({
                   /* Pressing the tag it already has takes it off, the way every
                      toggle in this app does — otherwise "none" would need a
                      seventh pill nobody would look for. */
-                  onSelect={() => { onTag(label.id === labelId ? null : label.id); onClose(); }}
+                  onSelect={() => {
+                    onTag(label.id === labelId ? null : label.id);
+                    // Closing on a tag is right for a block that is already on
+                    // the day (the tag was the whole errand) and wrong for one
+                    // that is not on it yet, since closing would throw it away.
+                    if (!onConfirm) onClose();
+                  }}
                 />
               ))}
             </div>
@@ -337,7 +411,7 @@ export default function BlockMenu({
             {labelId && (
               <button
                 type="button"
-                onClick={() => { onTag(null); onClose(); }}
+                onClick={() => { onTag(null); if (!onConfirm) onClose(); }}
                 className="mt-2 text-[11.5px] font-semibold text-gray-400 hover:text-gray-700 transition-colors"
               >
                 No tag
@@ -351,7 +425,35 @@ export default function BlockMenu({
         )}
       </div>
 
-      {onDelete && (
+      {/*
+        THE DECISION, where a block is not on the day yet.
+
+        Two buttons and no third option, because there are exactly two things
+        this can end as. It is the last thing in the menu rather than the first
+        so that the name, the description and the tag are read on the way down
+        to it — and the primary is on the right, where every dialog in this app
+        puts the thing that commits.
+      */}
+      {onConfirm && (
+        <div className="border-t border-gray-100 px-3 py-2.5 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-[12px] font-semibold text-gray-400 hover:text-red-600 px-2 py-1.5 rounded-lg hover:bg-red-50 transition-colors"
+          >
+            Discard
+          </button>
+          <button
+            type="button"
+            onClick={() => onConfirm(commitRef.current())}
+            className="ml-auto text-[12.5px] font-semibold px-3.5 py-1.5 rounded-xl bg-gray-900 text-white hover:bg-gray-700 transition-colors"
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      )}
+
+      {onDelete && !onConfirm && (
         <div className="border-t border-gray-100 py-1">
           <button
             type="button"

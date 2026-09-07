@@ -80,6 +80,35 @@ import { DEFAULT_BLOCK_MINUTES, normalizeDailyPriority, normalizeEstimate } from
 export const TASK_ID_PROPERTY = 'tasksAppTaskId';
 export const DATE_PROPERTY = 'tasksAppDate';
 
+/*
+  TWO KINDS OF BLOCK, ONE ID SPACE.
+
+  The push, the record of what was sent and the stamp on the event itself are
+  all keyed by one string per block, and there are now two kinds of thing that
+  can be a block: a task, keyed by its row id, and a commitment of your own,
+  which lives in the day's JSON blob and has an id of its own making.
+
+  A commitment's key is prefixed rather than trusted to look different, and the
+  prefix is what the round trip is built on: everything Google sends back is
+  keyed by it, and the two halves of the day are written to two different
+  places — a task to its row, a commitment to the day's blob (see
+  `adoptGoogleNotes` and `reapDeletedBlocks` in lib/googleCalendar). Guessing
+  from the shape of an id would put a commitment's key into a `.eq('id', …)`
+  against a uuid column; "it starts with event_" is a fact about today's id
+  generator, where this is a promise.
+*/
+const COMMITMENT_PREFIX = 'commitment:';
+
+/** The push key for one of your own commitments. */
+export function commitmentPushId(id) {
+  return `${COMMITMENT_PREFIX}${String(id || '').slice(0, 48)}`;
+}
+
+/** Is this push key a commitment's rather than a task's? */
+export function isCommitmentPushId(key) {
+  return String(key || '').startsWith(COMMITMENT_PREFIX);
+}
+
 /** The colour an event falls back to when neither it nor its calendar names one. */
 export const EXTERNAL_FALLBACK_COLOR = '#4285f4';
 
@@ -706,7 +735,21 @@ export function pushTitle(title, mustDo) {
 
 /**
  * What finishing the day sends to Google: every task planned for `date` that
- * you actually gave an hour to.
+ * you actually gave an hour to, AND every fixed commitment on that day.
+ *
+ * The commitments used to stay behind, on the argument that they are furniture
+ * rather than work. That was the wrong line to draw: the class at nine and the
+ * hour of revision after it are both things that occupy you, and a calendar on
+ * your phone that shows one and not the other is not your day — it is the half
+ * of your day this app happens to call a task. They travel with the same fields
+ * as everything else (title, hour, length, tag, description) and with no star,
+ * since "must do" is a question about work.
+ *
+ * And they travel BOTH WAYS, exactly as a task's block does: a description
+ * typed onto one in Google Calendar comes back into it, and one deleted there
+ * is deleted here. The only asymmetry left is what deletion MEANS, and it is a
+ * real one — a task outlives its hour and goes back to unplaced, a commitment
+ * is nothing but its hour and goes.
  *
  * A task with no block is deliberately NOT here. "Some time this afternoon" is
  * a real plan and the app supports it, but it is not an appointment, and a
@@ -725,8 +768,29 @@ export function pushTitle(title, mustDo) {
  * Google and nothing about where the app keeps its lists. Absent, no header is
  * written, which is what keeps this a pure function of the tasks it is given.
  */
-export function dayPushItems(tasks, date, listName = null) {
+export function dayPushItems(tasks, date, listName = null, events = []) {
   if (!ISO_DATE.test(String(date))) return [];
+
+  /*
+    A commitment, as Google should hold it. No list header — it came from no
+    list — and no star. Its own id, prefixed, so what comes back is recognised
+    as ours and as NOT a task (see `commitmentPushId`).
+  */
+  const commitments = (Array.isArray(events) ? events : [])
+    .map((event) => {
+      const start = dayMinutes(event?.start);
+      if (start === null || !event?.id) return null;
+      const minutes = normalizeEstimate(event.minutes) || DEFAULT_BLOCK_MINUTES;
+      return {
+        taskId: commitmentPushId(event.id),
+        title: String(event.title || '').trim() || 'Commitment',
+        start: dayClock(start),
+        minutes: Math.min(minutes, DAY_WINDOW_END - start),
+        labelId: normalizeLabelId(event.labelId),
+        notes: clipDescription(String(event.notes || '')),
+      };
+    })
+    .filter(Boolean);
 
   return (Array.isArray(tasks) ? tasks : [])
     .filter(task => task?.planned_date === date && clockToMinutes(task.scheduled_start) !== null)
@@ -768,6 +832,7 @@ export function dayPushItems(tasks, date, listName = null) {
         ),
       };
     })
+    .concat(commitments)
     // Sorted by where they sit on the DAY, so the 1am block is last rather than
     // first: '01:00' < '09:00' as a string, and that is not the order the day
     // runs in.

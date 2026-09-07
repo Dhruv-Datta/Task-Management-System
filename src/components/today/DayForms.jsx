@@ -190,14 +190,21 @@ export function ScheduleDialog({ task, defaultStart, onSave, onUnschedule, onClo
 }
 
 /**
- * A fixed commitment. It is not a task and never becomes one: no status, no due
- * date, no list, nothing to tick off. It is here so the timeline can draw the
- * day you actually have, rather than the part of it that happens to be work.
+ * A fixed commitment, EDITED. It is not a task and never becomes one: no
+ * status, no due date, no list, nothing to tick off. It is here so the timeline
+ * can draw the day you actually have, rather than the part of it that happens
+ * to be work.
+ *
+ * Making one is not this box's job any more and there is no empty version of
+ * it: a commitment is drawn on the grid, at the hour you drew it, and named in
+ * the block itself (see Timeline). What is left for a form is the case the
+ * gesture is bad at — a class that starts at 9:05 and runs fifty minutes, which
+ * you type rather than aim at.
  */
-export function EventDialog({ event, defaultStart, defaultMinutes = 60, onSave, onRemove, onClose }) {
-  const [title, setTitle] = useState(event?.title || '');
-  const [start, setStart] = useState(event?.start || dayClock(defaultStart));
-  const [minutes, setMinutes] = useState(event?.minutes || defaultMinutes);
+export function EventDialog({ event, onSave, onRemove, onClose }) {
+  const [title, setTitle] = useState(event.title || '');
+  const [start, setStart] = useState(event.start);
+  const [minutes, setMinutes] = useState(event.minutes);
 
   const save = () => {
     const name = title.trim();
@@ -209,39 +216,37 @@ export function EventDialog({ event, defaultStart, defaultMinutes = 60, onSave, 
       something you wrote somewhere else.
     */
     onSave({
-      id: event?.id || `event_${Date.now()}`,
+      id: event.id,
       title: name,
       start,
       minutes,
-      labelId: event?.labelId || null,
-      notes: event?.notes || '',
+      labelId: event.labelId || null,
+      notes: event.notes || '',
     });
     onClose();
   };
 
   return (
     <SmallDialog
-      title={event ? 'Edit commitment' : 'New commitment'}
+      title="Edit commitment"
       onClose={onClose}
       footer={(
         <>
-          {event && (
-            <button
-              type="button"
-              onClick={() => { onRemove(event); onClose(); }}
-              title="Remove this commitment"
-              className="p-1.5 text-gray-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors"
-            >
-              <Trash2 size={14} />
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => { onRemove(event); onClose(); }}
+            title="Remove this commitment"
+            className="p-1.5 text-gray-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors"
+          >
+            <Trash2 size={14} />
+          </button>
           <button
             type="button"
             onClick={save}
             disabled={!title.trim()}
             className="ml-auto text-sm font-semibold px-4 py-1.5 rounded-xl bg-gray-900 text-white hover:bg-gray-700 disabled:opacity-30 transition-colors"
           >
-            {event ? 'Save' : 'Add to the day'}
+            Save
           </button>
         </>
       )}

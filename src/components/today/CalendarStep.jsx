@@ -55,7 +55,7 @@ function UnplacedRow({ task, listFor, onPatch, onOpen, onSchedule, onRemoveFromT
 export default function CalendarStep({
   day, timeline, events, nowMinutes, listFor, canvasRef, dragPreview,
   onPatch, onOpen, onSchedule, onRemoveFromToday, onSetHalf,
-  onUnschedule, onPlaceTask, onPlaceEvent, onPlaceExternal, onAddEvent, onEditEvent,
+  onUnschedule, onPlaceTask, onPlaceEvent, onPlaceExternal, onEditEvent, onCreateEvent,
   onTagBlock, onRenameBlock, onDescribeBlock, onDeleteBlock, tags,
   googleControl = null,
 }) {
@@ -103,8 +103,8 @@ export default function CalendarStep({
         onPlaceTask={onPlaceTask}
         onPlaceEvent={onPlaceEvent}
         onPlaceExternal={onPlaceExternal}
-        onAddEvent={onAddEvent}
         onEditEvent={onEditEvent}
+        onCreateEvent={onCreateEvent}
         onTagBlock={onTagBlock}
         onRenameBlock={onRenameBlock}
         onDescribeBlock={onDescribeBlock}

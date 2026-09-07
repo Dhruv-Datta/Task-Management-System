@@ -1,12 +1,13 @@
 import 'server-only';
 
 import { readSetting, writeSetting } from './appSettings.js';
+import { readDayEvents, writeDayEvents } from './dayEvents.js';
 import { prunePlans as keepRecentDays } from './dayPlan.js';
 import { DAY_WINDOW_END, MINUTES_PER_DAY, addDaysISO, dayClock, dayMinutes } from './dates.js';
 import {
-  DATE_PROPERTY, MAX_DESCRIPTION, MAX_EXTERNAL_EVENTS, TASK_ID_PROPERTY, daySignature,
-  externalFromGoogle, itemSignature, noteDigest, noteDigestOf, normalizeLabels, withNoteDigest,
-  withoutListHeader,
+  DATE_PROPERTY, MAX_DESCRIPTION, MAX_EXTERNAL_EVENTS, TASK_ID_PROPERTY,
+  commitmentPushId, daySignature, externalFromGoogle, isCommitmentPushId, itemSignature,
+  noteDigest, noteDigestOf, normalizeLabels, withNoteDigest, withoutListHeader,
 } from './googleEvents.js';
 import { forgetAccessToken, getAccessToken } from './googleAuth.js';
 
@@ -494,8 +495,14 @@ export async function readGoogleDay(supabase, { date, timeZone, reap = true }) {
     it.
   */
   let notes = [];
+  // The day's commitments, but only if one of the two passes below changed
+  // them: `null` means "nothing to tell the page", which is every ordinary
+  // read, and is not the same answer as "the day has no commitments".
+  let commitments = null;
   try {
-    notes = await adoptGoogleNotes(supabase, date, blocks);
+    const adopted = await adoptGoogleNotes(supabase, date, blocks);
+    notes = adopted.tasks;
+    commitments = adopted.commitments;
   } catch (err) {
     console.error('Failed to read notes back out of Google Calendar', err);
   }
@@ -515,7 +522,11 @@ export async function readGoogleDay(supabase, { date, timeZone, reap = true }) {
   let unplaced = [];
   if (reap) {
     try {
-      unplaced = await reapDeletedBlocks(supabase, date, blocks, complete);
+      const reaped = await reapDeletedBlocks(supabase, date, blocks, complete);
+      unplaced = reaped.tasks;
+      // The later pass wins: it read the blob after the adoption wrote it, so
+      // what it holds includes both changes.
+      if (reaped.commitments) commitments = reaped.commitments;
     } catch (err) {
       console.error('Failed to reconcile blocks deleted in Google Calendar', err);
     }
@@ -532,6 +543,14 @@ export async function readGoogleDay(supabase, { date, timeZone, reap = true }) {
     // The tasks whose blocks Google no longer has, and which are therefore no
     // longer on the timeline either.
     unplaced,
+    /*
+      And the day's own commitments, WHOLE, when either of those two passes
+      changed one — a description typed onto a class in Google Calendar, or a
+      class deleted there. Whole rather than a patch because they are a blob:
+      the page replaces its copy, which is the same thing /api/events hands it
+      and the same thing it writes back.
+    */
+    commitments,
   };
 }
 
@@ -691,11 +710,11 @@ function ownBlock(raw, calendarId) {
  * touching the database — on the ordinary day where nothing was edited there.
  */
 export async function adoptGoogleNotes(supabase, date, blocks) {
-  if (!Array.isArray(blocks) || blocks.length === 0) return [];
+  if (!Array.isArray(blocks) || blocks.length === 0) return { tasks: [], commitments: null };
 
   const blob = await readPushed(supabase);
   const entry = dayEntry(blob, date);
-  if (Object.keys(entry.events).length === 0) return [];
+  if (Object.keys(entry.events).length === 0) return { tasks: [], commitments: null };
 
   const changed = [];
   for (const block of blocks) {
@@ -710,11 +729,39 @@ export async function adoptGoogleNotes(supabase, date, blocks) {
     if (digest === noteDigestOf(known.sig)) continue;
     changed.push({ ...block, digest });
   }
-  if (changed.length === 0) return [];
+  if (changed.length === 0) return { tasks: [], commitments: null };
 
   const next = { ...entry.events };
   const rows = [];
+
+  /*
+    A COMMITMENT'S NOTES COME HOME THE SAME WAY A TASK'S DO.
+
+    They land somewhere else — the day's own blob rather than a task row — and
+    that is the only difference. The blob is read once, edited in memory for
+    however many commitments Google turned out to know better about, and written
+    once, because it is one settings row and a write per block would be a write
+    per block on the same row.
+  */
+  const commitments = changed.some(item => isCommitmentPushId(item.taskId))
+    ? await readDayEvents(supabase, date)
+    : null;
+  let commitmentsMoved = false;
+
   for (const item of changed) {
+    if (isCommitmentPushId(item.taskId)) {
+      const target = commitments.find(e => commitmentPushId(e.id) === item.taskId);
+      // Deleted here while its event lived on in Google. Nothing to adopt into;
+      // the record goes, and the next push takes the block out of the calendar.
+      if (!target) { delete next[item.taskId]; commitmentsMoved = true; continue; }
+      // No list header on a commitment — it came from no list — so the
+      // description IS the note, whole.
+      target.notes = item.description;
+      commitmentsMoved = true;
+      next[item.taskId] = { ...next[item.taskId], sig: withNoteDigest(next[item.taskId].sig, item.digest) };
+      continue;
+    }
+
     const { data, error } = await supabase
       .from('tasks')
       // The header this app writes on the front of every block's description
@@ -733,11 +780,18 @@ export async function adoptGoogleNotes(supabase, date, blocks) {
     next[item.taskId] = { ...next[item.taskId], sig: withNoteDigest(next[item.taskId].sig, item.digest) };
   }
 
-  if (rows.length > 0) {
+  /*
+    The commitments FIRST and the digests second, the same order and for the
+    same reason the tasks are written before theirs: a crash in between re-reads
+    as "still changed" and adopts the same text again, where the other order
+    would lose the note and then send the old one back over it.
+  */
+  if (commitmentsMoved) await writeDayEvents(supabase, date, commitments);
+  if (rows.length > 0 || commitmentsMoved) {
     blob[date] = { at: entry.at, events: next };
     await writeSetting(supabase, PUSHED_KEY, blob);
   }
-  return rows;
+  return { tasks: rows, commitments: commitmentsMoved ? commitments : null };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -840,7 +894,7 @@ export async function reapDeletedBlocks(supabase, date, blocks, complete) {
   const blob = await readPushed(supabase);
   const entry = dayEntry(blob, date);
   const known = Object.entries(entry.events).filter(([, e]) => e?.eventId);
-  if (known.length === 0) return [];
+  if (known.length === 0) return { tasks: [], commitments: null };
 
   /*
     Our own events, as this day's read found them: the task, in the calendar the
@@ -879,12 +933,28 @@ export async function reapDeletedBlocks(supabase, date, blocks, complete) {
     // Google — so the event itself is asked, and only it decides.
     if (await eventIsGone(supabase, calendarId, event.eventId)) gone.push(taskId);
   }
-  if (gone.length === 0) return [];
+  if (gone.length === 0) return { tasks: [], commitments: null };
 
   const next = { ...entry.events };
   const rows = [];
+
+  /*
+    A DELETED COMMITMENT IS DELETED, and that is not the same thing as an
+    unscheduled task, because the two are not the same shape.
+
+    A task exists whether or not it has an hour, so deleting its event says only
+    where it is NOT happening and the task goes back to being unplaced. A
+    commitment is nothing BUT an hour — no status, no list, nothing left over
+    when you take the time away — so deleting its event in Google deletes it
+    here. Anything else would be a lecture you removed on your phone reappearing
+    on the timeline every morning.
+  */
+  const commitments = gone.some(isCommitmentPushId) ? await readDayEvents(supabase, date) : null;
+  const dropped = new Set(gone.filter(isCommitmentPushId));
+
   for (const taskId of gone) {
     delete next[taskId];
+    if (isCommitmentPushId(taskId)) continue;
     /*
       Guarded on the day: a task that has since been moved to another date is
       wearing another day's block, and this day's deleted event has no business
@@ -904,13 +974,27 @@ export async function reapDeletedBlocks(supabase, date, blocks, complete) {
     if (data) rows.push(data);
   }
 
+  const keptCommitments = commitments
+    ? commitments.filter(event => !dropped.has(commitmentPushId(event.id)))
+    : null;
+  // The day itself first, then the record of what we sent for it: the same
+  // order, and the same reason, as `adoptGoogleNotes`.
+  if (keptCommitments && keptCommitments.length !== commitments.length) {
+    await writeDayEvents(supabase, date, keptCommitments);
+  }
+
   // Emptied entirely: the day is not "sent with nothing in it", it is unsent,
   // which is the same shape the push leaves behind when it removes the last
   // block.
   if (Object.keys(next).length > 0) blob[date] = { at: entry.at, events: next };
   else delete blob[date];
   await writeSetting(supabase, PUSHED_KEY, blob);
-  return rows;
+  return {
+    tasks: rows,
+    commitments: keptCommitments && keptCommitments.length !== commitments.length
+      ? keptCommitments
+      : null,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

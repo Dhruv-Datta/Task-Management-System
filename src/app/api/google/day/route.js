@@ -31,8 +31,10 @@ import { isValidTimeZone, normalizePushItems } from '@/lib/googleEvents';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-/** A day of blocks is a plan; sixty of them is a runaway client. */
-const MAX_PUSH_ITEMS = 60;
+/** A day of blocks is a plan; eighty of them is a runaway client. (It was
+    sixty when only tasks travelled; the day's commitments share the budget
+    now, and a class timetable is not a reason to drop a block.) */
+const MAX_PUSH_ITEMS = 80;
 
 /*
   The timezone the day is read in. It comes from the browser
@@ -64,6 +66,7 @@ function disconnected(date, reason) {
     labels: {},
     writeCalendar: null,
     notes: [],
+    commitments: null,
     pushed: { at: null, count: 0, signature: '' },
     reason,
   });
@@ -118,6 +121,13 @@ export async function GET(request) {
         // deleted in Google Calendar, already put back to unplaced here, handed
         // back whole so the timeline can drop them without a re-read.
         unplaced: day.unplaced,
+        /*
+          The day's own commitments, when Google turned out to have changed one
+          — a description typed onto the class, or the class deleted altogether.
+          `null` on every ordinary read, which is what tells the page to keep
+          the copy it has rather than replace it with a stale one.
+        */
+        commitments: day.commitments,
         pushed,
         reason: null,
       });
@@ -136,11 +146,12 @@ export async function GET(request) {
   POST { date, tz, items } → send the day to Google, and read it straight back.
 
   `items` is the day as the browser has it: every task planned for this date
-  that you gave an hour to (see `dayPushItems` in lib/googleEvents). It comes
-  from the client and not from a fresh read of the tasks table, because the
-  press that triggers this generally lands within a heartbeat of a drag, and the
-  day on screen is the one you meant — waiting for the last save to round-trip
-  would sometimes send a plan one block out of date.
+  that you gave an hour to, plus the day's own fixed commitments (see
+  `dayPushItems` in lib/googleEvents). It comes from the client and not from a
+  fresh read of the tasks table, because the press that triggers this generally
+  lands within a heartbeat of a drag, and the day on screen is the one you
+  meant — waiting for the last save to round-trip would sometimes send a plan
+  one block out of date.
 
   Which means it is INPUT, and it is treated as such: shape-checked, capped, and
   de-duplicated before a single event is written into a real person's calendar.
@@ -181,6 +192,7 @@ export async function POST(request) {
       labels: day.labels,
       writeCalendar: day.writeCalendar,
       notes: day.notes,
+      commitments: day.commitments,
     });
   });
 }

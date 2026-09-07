@@ -156,7 +156,7 @@ export default function TodayPage() {
   const [openTaskId, setOpenTaskId] = useState(null);
   const [composer, setComposer] = useState(null);        // null | defaults object
   const [scheduling, setScheduling] = useState(null);    // null | task id
-  const [eventDraft, setEventDraft] = useState(null);    // null | { event | null }
+  const [eventDraft, setEventDraft] = useState(null);    // null | { event }
 
   /*
     THE GOOGLE HALF, in three pieces.
@@ -192,6 +192,13 @@ export default function TodayPage() {
   */
   const externalRef = useRef(external);
   useEffect(() => { externalRef.current = external; }, [external]);
+  /*
+    And the day's own commitments, for the same reason again: they go to Google
+    with the tasks now, and the send must carry the day as it is at the moment
+    you press it rather than the one this callback was built with.
+  */
+  const eventsRef = useRef(events);
+  useEffect(() => { eventsRef.current = events; }, [events]);
   const [sync, setSync] = useState({
     status: 'idle', signature: '', at: null, count: 0, stale: false, calendar: null, error: null,
   });
@@ -315,6 +322,13 @@ export default function TodayPage() {
                     longer happening (see `reapDeletedBlocks`), so the server
                     puts the task back to unplaced and the timeline drops it.
 
+    A COMMITMENT travels both of those roads too, and lands somewhere else: it
+    is not a task row but a line in the day's own blob, so the server hands the
+    whole day of them back (`commitments`) and `setEvents` swaps them in. A
+    class whose room you typed into Google Calendar says the room here; a class
+    you deleted there is gone from here, because a commitment with no hour is
+    not a commitment at all.
+
     Both come back as whole rows, so this is a swap and not a patch: the new
     `version` lands with the new values, and the next edit made here guards
     against the right row instead of 409-ing on a change this page asked for.
@@ -375,6 +389,9 @@ export default function TodayPage() {
       if (day.connected) {
         adoptRows(day.notes);
         adoptRows(day.unplaced);
+        // And the day's own commitments, when Google turned out to have changed
+        // one. Null on every ordinary read: keep what we have.
+        if (day.commitments) setEvents(day.commitments);
       }
     } catch (err) {
       console.error('Failed to read Google Calendar', err);
@@ -706,9 +723,12 @@ export default function TodayPage() {
     THE DAY YOU DECIDED ON, WRITTEN WHERE YOU WILL ACTUALLY SEE IT.
 
     What goes is `dayPushItems`: the tasks planned for today that you gave an
-    hour to. Not the whole day — a task with no block is a real plan ("some time
-    this afternoon") but it is not an appointment, and inventing a time for it in
-    your calendar would be the app making up a commitment on your behalf.
+    hour to, and the day's fixed commitments — the class, the lunch, the
+    standup — which travel with them, because the day on your phone should be
+    the day, not the working half of it. Not the whole plan, though: a task with
+    no block is a real plan ("some time this afternoon") but it is not an
+    appointment, and inventing a time for it in your calendar would be the app
+    making up a commitment on your behalf.
 
     Read off `tasksRef` rather than `tasks`, so this callback survives every
     keystroke on the page — and, more to the point, so it reads the day as it is
@@ -729,7 +749,7 @@ export default function TodayPage() {
       const res = await pushGoogleDay(
         today,
         timeZone,
-        dayPushItems(tasksRef.current, today, listNameFor)
+        dayPushItems(tasksRef.current, today, listNameFor, eventsRef.current)
       );
       if (!res.ok) {
         setSync(prev => ({ ...prev, status: 'error', error: res.error }));
@@ -754,6 +774,7 @@ export default function TodayPage() {
       });
       setGoogleNotice(null);
       adoptRows(res.notes);
+      if (res.commitments) setEvents(res.commitments);
       setExternal(res.events || []);
       setLabels({ byCalendar: res.labels || {}, write: res.writeCalendar || null });
       setGoogle(prev => (prev ? { ...prev, failed: res.failed || [] } : prev));
@@ -926,9 +947,9 @@ export default function TodayPage() {
                     once, and goes to Google with the next send, which is what
                     the "Send changes" button starts offering the moment you
                     pick one (the tag is in the push signature).
-      a commitment  `labelId` in the day's own events blob. It never goes to
-                    Google — a commitment is furniture, not work — so this is
-                    the whole of it.
+      a commitment  `labelId` in the day's own events blob, and from there to
+                    Google with the next send, exactly as a task's does: the
+                    day it draws is the whole day, not the working half of it.
       a Google      straight to Google, on the event itself. Its colour here is
       event         its colour there, because they are the same fact.
 
@@ -1186,8 +1207,8 @@ export default function TodayPage() {
     // The same items the push sends, list header and all: a task moved to
     // another list is a description Google no longer has, which is a day that
     // has changed since it was sent.
-    () => pushSignature(dayPushItems(tasks, today, listNameFor)),
-    [listNameFor, tasks, today]
+    () => pushSignature(dayPushItems(tasks, today, listNameFor, events)),
+    [events, listNameFor, tasks, today]
   );
   /*
     Two different ways to be out of date, and the second is invisible from here:
@@ -1209,6 +1230,12 @@ export default function TodayPage() {
     it, whether or not you have pressed Finish. It is the same push the button
     fires, off the same dirty flag, so it covers every edit without any of them
     having to know that Google exists.
+
+    THE DAY'S COMMITMENTS ARE EDITS LIKE ANY OTHER. Drawing a class, renaming
+    it, dragging it an hour later, deleting it: each one changes the day, so
+    each one changes the signature, so each one is in your calendar a second and
+    a half later. There is nothing in this that knows a commitment from a task,
+    which is the whole reason it covers both (see `dayPushItems`).
 
     IT USED TO WAIT FOR FINISH, on the argument that a day mid-plan is a day you
     are still changing your mind about and each intermediate arrangement would
@@ -1353,8 +1380,8 @@ export default function TodayPage() {
           onDescribeBlock={describeBlock}
           onDeleteBlock={deleteBlock}
           tags={tags}
-          onAddEvent={range => setEventDraft({ event: null, range })}
           onEditEvent={event => setEventDraft({ event })}
+          onCreateEvent={saveEvent}
           dragPreview={dragPreview}
           googleControl={googleControl}
         />
@@ -1464,8 +1491,8 @@ export default function TodayPage() {
               onDescribeBlock={describeBlock}
               onDeleteBlock={deleteBlock}
               tags={tags}
-              onAddEvent={range => setEventDraft({ event: null, range })}
               onEditEvent={event => setEventDraft({ event })}
+              onCreateEvent={saveEvent}
               dragPreview={dragPreview}
               googleControl={googleControl}
               googleSync={<GoogleSync google={google} sync={syncView} onSync={sendToGoogle} />}
@@ -1558,14 +1585,15 @@ export default function TodayPage() {
         />
       )}
 
+      {/*
+        EDITING a commitment, and only editing one: it is made on the grid, by
+        drawing it (see Timeline), so there is no longer any way — or reason —
+        to open this box empty. What it is for is the two numbers, typed: a
+        class that starts at 9:05 is a thing you say, not a thing you drag.
+      */}
       {eventDraft && (
         <EventDialog
           event={eventDraft.event}
-          // Drawn on the grid, the range IS the answer and the box only
-          // confirms it. Opened from the button, there is nothing to go on but
-          // the first gap long enough to hold an hour.
-          defaultStart={eventDraft.range?.start ?? nextFreeStart(timeline, 60, nowMinutes)}
-          defaultMinutes={eventDraft.range?.minutes ?? 60}
           onSave={saveEvent}
           onRemove={removeEvent}
           onClose={() => setEventDraft(null)}

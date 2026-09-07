@@ -84,10 +84,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useDroppable } from '@dnd-kit/core';
-import { CalendarPlus, Clock, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import {
-  DAY_WINDOW_END, MINUTES_PER_DAY, clockToMinutes, dayMinutes, formatClock, formatClockRange,
-  formatHourLabel,
+  DAY_WINDOW_END, MINUTES_PER_DAY, clockToMinutes, dayClock, dayMinutes, formatClock,
+  formatClockRange, formatHourLabel,
 } from '@/lib/dates';
 import { descriptionPreview, labelColor, listHeader } from '@/lib/googleEvents';
 import { TASK_COLOR, inkOn } from '@/lib/colors';
@@ -130,6 +130,13 @@ const SCROLL_SPEED = 16;
 
 /** What a click on empty canvas is worth, the same as every other calendar. */
 const NEW_EVENT_MINUTES = 60;
+
+/* What a commitment is called before you have called it anything. It is a real
+   name rather than an empty string, because the block is on the grid the
+   moment you let go and a nameless bar is not a thing you can read at a
+   glance — and it is the placeholder in the menu's name field too, so the one
+   word you have to replace is the one word you can see. */
+const NEW_EVENT_TITLE = 'New commitment';
 
 const snap = minutes => Math.round(minutes / SNAP) * SNAP;
 const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
@@ -423,8 +430,8 @@ function tooltipFor(block, start, minutes) {
   and then it cannot start moving by accident three refactors from now.
 */
 function Block({
-  block, origin, toMinute, autoScroll, labels, movable,
-  onOpen, onUnschedule, onChange, onEditEvent, onMenu,
+  block, origin, toMinute, autoScroll, labels, movable, pending = false,
+  onOpen, onUnschedule, onChange, onMenu,
 }) {
   const isTask = block.kind === 'task';
   const isExternal = block.kind === 'external';
@@ -546,20 +553,39 @@ function Block({
     act on should be the thing on top. Whatever is mid-gesture wins over both,
     because while you are holding it, it is the only block you are looking at.
   */
-  const depth = moving ? 30 : isExternal ? 5 : 10;
+  const depth = moving || pending ? 30 : isExternal ? 5 : 10;
 
   return (
     <div
+      // A block the day has not accepted yet is dragged and resized WITH its
+      // menu open, so its menu must not treat being grabbed as being dismissed.
+      data-block-menu-keep={pending ? '' : undefined}
       onPointerDown={movable ? begin('move') : undefined}
       onContextMenu={(e) => {
         e.preventDefault();
         e.stopPropagation();
         onMenu(block, { x: e.clientX, y: e.clientY });
       }}
-      onClick={() => {
-        if (draggedRef.current) return;
+      /*
+        A CLICK OPENS WHATEVER THE BLOCK IS.
+
+        For a task that is the task — the same panel the rest of the app opens,
+        because the block is one view of a thing that lives elsewhere. For a
+        commitment there IS nowhere else: the block is the whole of it, and
+        everything you can say about one (its name, its note, its colour, and
+        deleting it) is in the menu already sitting under the right button. So
+        the left one opens the same menu rather than a second, smaller editor
+        that knew less — a commitment should not need you to know about
+        right-click to be renamed.
+
+        Google's own events keep doing nothing on a click. They are somebody
+        else's, most of what the menu offers is refused for them, and a panel
+        that opens mostly greyed out on a stray click is worse than no panel.
+      */
+      onClick={(e) => {
+        if (draggedRef.current || pending) return;
         if (isTask) onOpen(block.task);
-        else if (!isExternal) onEditEvent(block.event);
+        else if (!isExternal) onMenu(block, { x: e.clientX, y: e.clientY });
       }}
       title={tooltipFor(block, start, minutes)}
       style={{
@@ -572,7 +598,7 @@ function Block({
       }}
       className={`group/block overflow-hidden rounded-md select-none shadow-sm transition-shadow hover:shadow-md ${type.pad} ${
         movable ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'
-      } ${moving ? 'shadow-xl ring-2 ring-white/80' : ''}`}
+      } ${moving || pending ? 'shadow-xl ring-2 ring-white/80' : ''}`}
     >
       <BlockFace
         title={block.title}
@@ -743,8 +769,8 @@ function menuSubtitle(block) {
 
 export default function Timeline({
   timeline, events, nowMinutes, canvasRef,
-  onOpenTask, onUnschedule, onPlaceTask, onPlaceEvent, onAddEvent, onEditEvent,
-  onPlaceExternal, onTagBlock, onRenameBlock, onDescribeBlock, onDeleteBlock,
+  onOpenTask, onUnschedule, onPlaceTask, onPlaceEvent, onEditEvent,
+  onPlaceExternal, onCreateEvent, onTagBlock, onRenameBlock, onDescribeBlock, onDeleteBlock,
   tags = NO_TAGS,
   dragPreview = null, googleControl = null,
 }) {
@@ -844,8 +870,21 @@ export default function Timeline({
     DRAW A COMMITMENT ON EMPTY CANVAS.
 
     Press and drag to say both numbers at once; a plain click says the start and
-    takes the hour as read. Either way the dialog opens with the range already
-    filled in, so the gesture is the answer and the form is the confirmation.
+    takes the hour as read. Either way what you let go of is a PENDING block: it
+    is drawn on the grid exactly like every other block, and it moves and
+    resizes exactly like one, but the day does not have it yet.
+
+    Nothing is written until you say so. The menu every block already has opens
+    on it at the pointer with the name field live, and the day takes it when you
+    press Enter or Add to the day — anything else (Escape, Discard, a click on
+    the calendar behind it) and the hour was never there. That is the difference
+    between a calendar you can draw on and one that fills up with every stray
+    click, and it is why there is only ever ONE pending block: drawing a second
+    range throws the first away rather than leaving a trail of them.
+
+    It is still a real block while you decide, which is the point — drag it up
+    an hour, pull its edge out to ninety minutes, tag it, describe it. What you
+    confirm is what you have been looking at the whole time.
 
     The guard is `event.target === event.currentTarget`: the hour lines and the
     now-line are pointer-events-none and never targets, and a block stops the
@@ -853,6 +892,61 @@ export default function Timeline({
   */
   const [drawn, setDrawn] = useState(null);
   const drawnRef = useRef(null);
+
+  const [menu, setMenu] = useState(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
+
+  /*
+    THE ONE BLOCK THE DAY DOES NOT HAVE YET: what you have drawn and not yet
+    confirmed. Held here rather than written and un-written, because a
+    commitment that exists for four seconds is one every other part of the app
+    can see — the finished day, the workload, the push to Google — and "it was
+    there and then it wasn't" is a worse thing for them to see than "it wasn't
+    there yet".
+
+    It is shaped as a BLOCK so the grid can draw it with the same component as
+    everything else and the menu can describe it with the same code: same
+    colour, same face, same drag and resize, one ring around it to say it is
+    still a proposal.
+  */
+  const [pending, setPending] = useState(null);
+  const pendingBlock = pending && {
+    key: `pending-${pending.id}`,
+    kind: 'event',
+    id: pending.id,
+    title: pending.title.trim() || NEW_EVENT_TITLE,
+    event: { id: pending.id, title: pending.title, start: dayClock(pending.start), minutes: pending.minutes, labelId: pending.labelId, notes: pending.notes },
+    labelId: pending.labelId,
+    start: pending.start,
+    minutes: pending.minutes,
+    end: Math.min(pending.start + pending.minutes, DAY_WINDOW_END),
+    // Full width and on top: it is the only thing you are looking at, and it is
+    // laid out by nothing because it is not in the day's layout yet.
+    column: 0,
+    columns: 1,
+  };
+
+  const discardPending = useCallback(() => { setPending(null); setMenu(null); }, []);
+
+  /*
+    `saved` is whatever the menu's open field committed on the way here — the
+    name you typed and confirmed with the same keystroke. It arrives as an
+    argument because that write has not reached `pending` yet: see `commit` in
+    BlockMenu.
+  */
+  const confirmPending = useCallback((saved = {}) => {
+    setPending(null);
+    setMenu(null);
+    if (!pending) return;
+    onCreateEvent({
+      id: pending.id,
+      title: (saved.title ?? pending.title).trim() || NEW_EVENT_TITLE,
+      start: dayClock(pending.start),
+      minutes: pending.minutes,
+      labelId: pending.labelId || null,
+      notes: saved.description ?? pending.notes ?? '',
+    });
+  }, [onCreateEvent, pending]);
 
   const beginCreate = (event) => {
     if (event.button !== 0 || event.target !== event.currentTarget) return;
@@ -869,7 +963,7 @@ export default function Timeline({
       const edge = clamp(snap(now), 0, DAY_WINDOW_END);
       const top = Math.min(anchor, edge);
       const bottom = Math.max(Math.max(anchor, edge), top + MIN_BLOCK_MINUTES);
-      const next = { start: top, minutes: bottom - top, title: 'New commitment' };
+      const next = { start: top, minutes: bottom - top, title: NEW_EVENT_TITLE };
       drawnRef.current = next;
       setDrawn(next);
     };
@@ -881,7 +975,7 @@ export default function Timeline({
       apply(e.clientY);
     };
 
-    const up = () => {
+    const up = (e) => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       autoScroll.stop();
@@ -893,7 +987,10 @@ export default function Timeline({
       const range = dragging && drawnRange
         ? { start: drawnRange.start, minutes: drawnRange.minutes }
         : { start: clamp(anchor, 0, DAY_WINDOW_END - NEW_EVENT_MINUTES), minutes: NEW_EVENT_MINUTES };
-      onAddEvent(range);
+
+      const id = `event_${Date.now()}`;
+      setPending({ id, title: '', notes: '', labelId: null, start: range.start, minutes: range.minutes });
+      setMenu({ key: `pending-${id}`, point: { x: e.clientX, y: e.clientY }, naming: true });
     };
 
     autoScroll.start(apply);
@@ -916,9 +1013,12 @@ export default function Timeline({
     task unscheduled in another tab, an event deleted) closes itself rather than
     describing something that is no longer on the grid.
   */
-  const [menu, setMenu] = useState(null);
-  const closeMenu = useCallback(() => setMenu(null), []);
-  const menuBlock = menu ? timeline.blocks.find(b => b.key === menu.key) || menu.allDay || null : null;
+  const menuBlock = menu
+    ? (pendingBlock && menu.key === pendingBlock.key
+        ? pendingBlock
+        : timeline.blocks.find(b => b.key === menu.key) || menu.allDay || null)
+    : null;
+  const aboutPending = !!pendingBlock && menuBlock === pendingBlock;
   // Adjusted during render rather than in an effect: React re-renders before it
   // commits, so a menu whose block has gone never reaches the screen at all —
   // where an effect would let it draw once, pointed at nothing, and then vanish.
@@ -1015,20 +1115,14 @@ export default function Timeline({
       <PanelHead
         title="Timeline"
         hint={timeline.blocks.length === 0 ? 'drag a task across' : null}
-        action={(
-          <>
-            {googleControl}
-            <button
-              type="button"
-              onClick={() => onAddEvent()}
-              title="Add a fixed commitment: class, lunch, a meeting"
-              className="inline-flex items-center gap-1 text-[11px] font-semibold text-gray-500 px-2 py-1 rounded-lg hover:bg-gray-100 transition-colors"
-            >
-              <CalendarPlus size={12} strokeWidth={2.5} />
-              Commitment
-            </button>
-          </>
-        )}
+        /*
+          The Google chip and nothing else. There was a "Commitment" button here
+          and it is gone: the grid below it makes a commitment by being drawn
+          on, at the hour you drew it, which is both fewer clicks and the only
+          version of the gesture that knows when you meant. A button that opened
+          a form to type a start time into was the same thing done blind.
+        */
+        action={googleControl}
       />
 
       {/*
@@ -1199,20 +1293,25 @@ export default function Timeline({
                 else if (b.kind === 'event') onPlaceEvent(b.event, start, minutes);
                 else onPlaceExternal(b.external, start, minutes);
               }}
-              onEditEvent={onEditEvent}
               onMenu={(b, point) => setMenu({ key: b.key, point })}
             />
           ))}
 
-          {timeline.blocks.length === 0 && !ghost && (
-            <div className="absolute inset-0 flex items-start justify-center pt-16 pointer-events-none">
-              <p className="max-w-[240px] rounded-2xl bg-white/90 px-4 py-3 text-center text-[13px] text-gray-400 leading-relaxed">
-                <Clock size={16} className="inline-block mb-1 text-gray-300" />
-                <br />
-                Nothing placed yet. Drag a task across from the right, or drag
-                out an hour here to add a commitment.
-              </p>
-            </div>
+          {/* The one you are still deciding about, drawn like the rest of them
+              and marked as not-yet-yours by the ring around it. */}
+          {pendingBlock && (
+            <Block
+              key={pendingBlock.key}
+              block={pendingBlock}
+              origin={origin}
+              toMinute={toMinute}
+              autoScroll={autoScroll}
+              labels={labelsFor(pendingBlock)}
+              movable
+              pending
+              onChange={(b, start, minutes) => setPending(p => (p ? { ...p, start, minutes } : p))}
+              onMenu={(b, point) => setMenu({ key: b.key, point, naming: false })}
+            />
           )}
         </div>
       </div>
@@ -1236,6 +1335,14 @@ export default function Timeline({
             point={menu.point}
             title={menuBlock.title}
             subtitle={menuSubtitle(menuBlock)}
+            /*
+              A commitment you have just drawn opens with its name already the
+              field, because naming it is the only reason the menu is up. Every
+              other block opens as a menu: a right-click on something that is
+              already called something is rarely a rename.
+            */
+            naming={!!menu.naming}
+            namePlaceholder={aboutPending ? NEW_EVENT_TITLE : ''}
             description={words.description}
             // Above the description and not inside it: it is what Google is
             // told before your notes, and it is not yours to edit here — the
@@ -1245,20 +1352,34 @@ export default function Timeline({
             labelId={menuBlock.labelId || null}
             note={noteFor(menuBlock)}
             readOnlyNote={readOnlyNoteFor(menuBlock)}
-            onTag={labelId => onTagBlock(menuBlock, labelId)}
-            onRename={words.editable ? title => onRenameBlock(menuBlock, title) : null}
+            /*
+              A pending block's words are its own until it is confirmed: every
+              one of these edits it in local state, and the single write that
+              happens on Add to the day carries all of them at once. The same
+              menu, the same fields, one save instead of four.
+            */
+            onTag={aboutPending
+              ? labelId => setPending(p => (p ? { ...p, labelId } : p))
+              : labelId => onTagBlock(menuBlock, labelId)}
+            onRename={aboutPending
+              ? title => setPending(p => (p ? { ...p, title } : p))
+              : (words.editable ? title => onRenameBlock(menuBlock, title) : null)}
             // A truncated description is shown and not edited: the name above it
             // is still perfectly safe to change, which is why these are two
             // permissions rather than one.
-            onDescribe={
-              words.editable && !words.clipped ? text => onDescribeBlock(menuBlock, text) : null
-            }
+            onDescribe={aboutPending
+              ? text => setPending(p => (p ? { ...p, notes: text } : p))
+              : (words.editable && !words.clipped ? text => onDescribeBlock(menuBlock, text) : null)}
             onDelete={
-              menuBlock.kind === 'task' || (menuBlock.kind === 'external' && !menuBlock.external?.writable)
+              aboutPending || menuBlock.kind === 'task'
+                || (menuBlock.kind === 'external' && !menuBlock.external?.writable)
                 ? null
                 : () => onDeleteBlock(menuBlock)
             }
-            onClose={closeMenu}
+            // Only a pending block has anything left to confirm. For everything
+            // else the menu is what it always was: changes land as you make them.
+            onConfirm={aboutPending ? confirmPending : null}
+            onClose={aboutPending ? discardPending : closeMenu}
           />
         );
       })()}

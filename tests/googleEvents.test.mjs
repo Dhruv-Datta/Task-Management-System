@@ -18,7 +18,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   EXTERNAL_FALLBACK_COLOR, MAX_DESCRIPTION, MIN_EXTERNAL_MINUTES, MUST_DO_STAR, TASK_ID_PROPERTY, asDrawn,
-  dayPushItems, daySignature, descriptionPreview, externalFromGoogle, findLabel, isValidTimeZone,
+  dayPushItems, daySignature, descriptionPreview, externalFromGoogle, findLabel,
+  isCommitmentPushId, isValidTimeZone,
   itemSignature,
   labelColor, noteDigest, noteDigestOf, normalizeExternal, normalizeExternals, normalizeLabelId,
   normalizeLabels, normalizePushItems, pushSignature, pushTitle, wallClock, withListHeader,
@@ -774,4 +775,33 @@ test('the day is sent in the order it runs, so the small hours are last', () => 
     { taskId: 'morning', title: 'Lecture', start: '09:00', minutes: 60 },
   ]);
   assert.deepEqual(items.map(i => i.taskId), ['morning', 'late']);
+});
+
+test('the day carries its commitments to Google as well as its tasks', () => {
+  const items = dayPushItems(
+    [mk({ id: 'task', title: 'Revision', planned_date: DATE, scheduled_start: '10:00', scheduled_minutes: 60 })],
+    DATE,
+    null,
+    [
+      { id: 'event_1', title: 'Lecture', start: '09:00', minutes: 50, notes: 'Room 12' },
+      // No hour is not a commitment: nothing to write it at.
+      { id: 'event_2', title: 'Nowhere', start: 'whenever', minutes: 30 },
+      // No id is nothing we could recognise as ours on the way back.
+      { title: 'Anonymous', start: '11:00', minutes: 30 },
+    ]
+  );
+
+  assert.deepEqual(items.map(i => i.taskId), ['commitment:event_1', 'task']);
+  const [lecture] = items;
+  assert.equal(lecture.title, 'Lecture');      // and no ⭐: a class is not a must-do
+  assert.equal(lecture.start, '09:00');
+  assert.equal(lecture.minutes, 50);
+  assert.equal(lecture.notes, 'Room 12');      // and no list header: it is in no list
+  assert.equal(isCommitmentPushId(lecture.taskId), true);
+  assert.equal(isCommitmentPushId(items[1].taskId), false);
+});
+
+test('a nameless commitment still has a name in your calendar', () => {
+  const [only] = dayPushItems([], DATE, null, [{ id: 'e', title: '   ', start: '09:00', minutes: 30 }]);
+  assert.equal(only.title, 'Commitment');
 });

@@ -456,9 +456,9 @@ export function normalizeEvent(raw) {
     // four hours in front of it, not none.
     minutes: Math.min(minutes, DAY_WINDOW_END - dayMinutes(raw.start)),
     // The tag it is drawn in: a Google event label id, exactly as a task's
-    // `google_label_id` is (see lib/googleEvents). A commitment is never
-    // written to Google — it is furniture, not work — so this only ever colours
-    // the block here, which is the whole of what it is for.
+    // `google_label_id` is (see lib/googleEvents) — and it means the same thing
+    // in the same place, because a commitment goes to Google with the rest of
+    // the day now (`dayPushItems`). One colour, here and on your phone.
     labelId: normalizeLabelId(raw?.labelId),
     // And whatever you wanted to remember about it: the room the class is in,
     // the number to dial. Called `notes` rather than `description` because that
