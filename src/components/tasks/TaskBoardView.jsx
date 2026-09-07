@@ -50,6 +50,30 @@ import {
 import { TaskCard } from './TaskItems';
 import { OVERLAY_Z, ShowCompletedToggle } from './TaskPickers';
 
+/*
+  THE COLUMN THAT DOES NOT SHUFFLE.
+
+  A sorting strategy is what draws the PREVIEW of a within-column reorder: the
+  cards below the gap slide down to open it, so you can see where the one in
+  your hand is about to land. That is right when the order is yours — you
+  dragged the cards into it, and the drop keeps them there.
+
+  It is a lie everywhere else. A column that is SORTED (by due date, or by the
+  day's own order on /today) or that belongs to a SLICE the board cannot
+  renumber will re-render in exactly the order it was already in, so the preview
+  opens a gap the drop then closes: cards jump under the cursor, the card you
+  are holding springs back to where it started, and the whole board reads as
+  broken while the one thing that did work — carrying a card into another
+  column — is buried under the noise.
+
+  So those columns get no preview at all. Nothing moves until something has
+  actually changed, which for these boards means crossing into another status.
+  The card is still a drop target (that is `useSortable`, not the strategy), so
+  dropping ONTO a card in another column still lands, and the card in flight is
+  still the DragOverlay under the cursor.
+*/
+const noSorting = () => null;
+
 function SortableCard({ task, children }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
   const style = {
@@ -77,8 +101,8 @@ function RunHeader({ run }) {
 }
 
 function Column({
-  status, tasks, runs, listFor, onPatch, onOpen, onAdd, onRemove, showCompleted, onToggleCompleted,
-  vertical = false,
+  status, tasks, runs, listFor, strategy, onPatch, onOpen, onAdd, onRemove,
+  showCompleted, onToggleCompleted, vertical = false,
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: columnId(status.key) });
 
@@ -131,7 +155,7 @@ function Column({
       >
         {/* One SortableContext per column, in display order, whether or not the
             cards are broken into runs; the runs are drawn between them. */}
-        <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
+        <SortableContext items={tasks.map(t => t.id)} strategy={strategy}>
           {runs.map(run => (
             <div key={run.key ?? 'all'} className="space-y-2 [&:not(:first-child)]:mt-3">
               {run.label && <RunHeader run={run} />}
@@ -173,6 +197,13 @@ export default function TaskBoardView({
   // board telling you where a card goes, and a within-column drop under it
   // would be undone by the next render.
   const imposed = sort !== boardSort('priority');
+
+  /*
+    And a column whose order cannot change must not animate as though it can:
+    the same three cases `handleDragEnd` refuses to save a reorder for are the
+    three that draw no preview of one. See `noSorting`.
+  */
+  const strategy = (clusterBy || imposed || !reorderable) ? noSorting : verticalListSortingStrategy;
 
   // Each status column, and the runs its cards are drawn in.
   const columns = useMemo(() => STATUSES.map(status => {
@@ -261,6 +292,7 @@ export default function TaskBoardView({
             tasks={columnTasks}
             runs={runs}
             listFor={listFor}
+            strategy={strategy}
             onPatch={onPatch}
             onOpen={onOpen}
             onAdd={onAdd}
@@ -296,8 +328,12 @@ export default function TaskBoardView({
         >
           {activeTask ? (
             <div className="rotate-1 opacity-95">
+              {/* The same card, drawn the same way — the list badge included.
+                  An overlay a line shorter than the card it came from is a card
+                  that changes size the moment you pick it up. */}
               <TaskCard
                 task={activeTask}
+                list={listFor ? listFor(activeTask) : null}
                 onPatch={() => {}}
                 onOpen={() => {}}
                 dense={vertical}

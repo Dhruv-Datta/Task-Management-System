@@ -85,6 +85,7 @@ import {
 } from '@/lib/tasksApi';
 import { dayPushItems, pushSignature } from '@/lib/googleEvents';
 import { useTaskStore } from '@/lib/taskStore';
+import { useDayLayout } from '@/lib/taskPrefs';
 import LoadError from '@/components/tasks/LoadError';
 import WriteError from '@/components/tasks/WriteError';
 import TaskComposer from '@/components/tasks/TaskComposer';
@@ -1457,6 +1458,15 @@ export default function TodayPage() {
   };
 
   const finalized = !!plan?.finalized;
+  /*
+    WHICH DRAWING OF THE FINISHED DAY IS UP (see DayView, lib/taskPrefs). The
+    page reads it for one reason: the board brings its OWN drag-and-drop, and
+    the page's — the one that carries a row onto the timeline — has nothing to
+    do while a board is on screen. Two nested DndContexts where one of them is
+    inert is a hazard with no upside, so on the board there is only the board's.
+  */
+  const [dayLayout] = useDayLayout();
+  const boardOnly = finalized && dayLayout === 'board';
 
   /*
     ONE SCROLLBAR, AND IT IS THE PAGE'S.
@@ -1474,6 +1484,70 @@ export default function TodayPage() {
     thing, since the hour and the task that belongs to it now move in step
     instead of sliding past each other.
   */
+  /*
+    THE DAY, drawn whichever way it is being read: the flow while you are
+    planning it, the finished day once you are not.
+
+    It is a variable rather than two branches of the JSX below because the only
+    thing that differs between the two places it appears is what is WRAPPED
+    around it, and a page that writes the same twenty props out twice is a page
+    where the two copies quietly drift apart.
+  */
+  const dayContent = (
+    finalized ? (
+      <DayView
+        day={day}
+        dateLine={dateLine}
+        summary={summary}
+        timeline={timeline}
+        nowMinutes={nowMinutes}
+        listFor={listFor}
+        canvasRef={canvasRef}
+        refreshing={refreshing}
+        onRefresh={() => loadAll({ quiet: true })}
+        onReplan={replan}
+        onPatch={patchTask}
+        onOpen={onOpen}
+        onUnschedule={unschedule}
+        onPlaceTask={placeTask}
+        onPlaceEvent={placeEvent}
+        onPlaceExternal={placeExternal}
+        onStatusBlock={statusBlock}
+        onTagBlock={tagBlock}
+        onRenameBlock={renameBlock}
+        onDescribeBlock={describeBlock}
+        onDeleteBlock={deleteBlock}
+        tags={tags}
+        onCreateEvent={saveEvent}
+        onBoardDrag={boardDrag}
+        onAddTask={openComposerForStatus}
+        /*
+          THE WAY OFF THE DAY, on the finished day as well as inside the
+          flow. A plan stops being true at eleven o'clock, and until now
+          the only way to take one row out of it was to re-open all four
+          steps — so it is on the row, on the card and on the block's
+          menu, and it is the same write the flow's rows make.
+        */
+        onRemoveFromToday={removeFromToday}
+        dragPreview={dragPreview}
+        googleControl={googleControl}
+        googleSync={<GoogleSync google={google} sync={syncView} onSync={sendToGoogle} />}
+      />
+    ) : (
+      <PlanFlow
+        step={step}
+        onStep={goStep}
+        onBack={goBack}
+        onNext={goNext}
+        onFinish={finish}
+        dateLine={dateLine}
+        summaryLine={summaryLine}
+      >
+        {stepBody()}
+      </PlanFlow>
+    )
+  );
+
   return (
     /*
       Same white ground and same container as /tasks: this is another room in
@@ -1503,6 +1577,16 @@ export default function TodayPage() {
             <div className="h-3 bg-gray-50 rounded w-2/3" />
           </div>
         </div>
+      ) : boardOnly ? (
+        /*
+          THE BOARD BRINGS ITS OWN DRAG. Four status columns, and dragging a
+          card between them is TaskBoardView's DndContext doing it — there are
+          no rows to pick up here and no grid to drop them on, so the page's own
+          context would be an outer context with nothing in it, wrapped around
+          the one that is doing the work. Nested contexts are a hazard for no
+          gain, so on the board there is only the board's.
+        */
+        dayContent
       ) : (
         /*
           One DndContext over the whole page, because the drag it is for starts
@@ -1523,58 +1607,7 @@ export default function TodayPage() {
           onDragEnd={onDragEnd}
           onDragCancel={stopTracking}
         >
-          {finalized ? (
-            <DayView
-              day={day}
-              dateLine={dateLine}
-              summary={summary}
-              timeline={timeline}
-              nowMinutes={nowMinutes}
-              listFor={listFor}
-              canvasRef={canvasRef}
-              refreshing={refreshing}
-              onRefresh={() => loadAll({ quiet: true })}
-              onReplan={replan}
-              onPatch={patchTask}
-              onOpen={onOpen}
-              onUnschedule={unschedule}
-              onPlaceTask={placeTask}
-              onPlaceEvent={placeEvent}
-              onPlaceExternal={placeExternal}
-              onStatusBlock={statusBlock}
-          onTagBlock={tagBlock}
-              onRenameBlock={renameBlock}
-              onDescribeBlock={describeBlock}
-              onDeleteBlock={deleteBlock}
-              tags={tags}
-              onCreateEvent={saveEvent}
-              onBoardDrag={boardDrag}
-              onAddTask={openComposerForStatus}
-              /*
-                THE WAY OFF THE DAY, on the finished day as well as inside the
-                flow. A plan stops being true at eleven o'clock, and until now
-                the only way to take one row out of it was to re-open all four
-                steps — so it is on the row, on the card and on the block's
-                menu, and it is the same write the flow's rows make.
-              */
-              onRemoveFromToday={removeFromToday}
-              dragPreview={dragPreview}
-              googleControl={googleControl}
-              googleSync={<GoogleSync google={google} sync={syncView} onSync={sendToGoogle} />}
-            />
-          ) : (
-            <PlanFlow
-              step={step}
-              onStep={goStep}
-              onBack={goBack}
-              onNext={goNext}
-              onFinish={finish}
-              dateLine={dateLine}
-              summaryLine={summaryLine}
-            >
-              {stepBody()}
-            </PlanFlow>
-          )}
+          {dayContent}
 
           {/*
             The task under the cursor on its way ACROSS THE PAGE, so what you
