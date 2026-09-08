@@ -14,7 +14,7 @@
 import { CalendarDays, ListChecks, Trash2, X } from 'lucide-react';
 import { isOverdue, subtaskProgress } from '@/lib/tasks';
 import {
-  DateChip, DatePicker, HardFlag, PriorityPicker, StatusChip, StatusPicker,
+  DailyPriorityToggle, DateChip, DatePicker, HardFlag, PriorityPicker, StatusChip, StatusPicker,
 } from './TaskPickers';
 
 /*
@@ -168,7 +168,7 @@ export function TaskRow({ task, list = null, showStatus = false, onPatch, onOpen
 */
 export function TaskCard({
   task, list = null, onPatch, onOpen, onRemove = null, removeLabel = 'Remove',
-  dragHandleProps, compact = false, dense = false,
+  onSetHalf = null, dragHandleProps, compact = false, dense = false,
 }) {
   const late = isOverdue(task);
   const hard = task.is_hard && !task.done;
@@ -196,6 +196,31 @@ export function TaskCard({
         <span className="flex-shrink-0 flex items-center h-[18px]">
           <HardFlag hard={hard} size={12} />
         </span>
+
+        {/*
+          WHICH HALF OF THE DAY IT IS IN — the star, on the boards that are a
+          DAY rather than a list.
+
+          Everywhere else on /today the two halves are said by the layout: the
+          rows sit under "Must finish" or "If there's time", and the star on
+          each row is a control rather than news. A status board has no such
+          headings — its columns are the workflow — so a day drawn this way lost
+          the one distinction the planning flow spends two whole steps setting,
+          and every card read as equally compulsory.
+
+          It is the same toggle as the flow's rows, not a read-only mark: the
+          board is where you are working through the day, which is exactly when
+          "this one is not happening after all" occurs to you.
+        */}
+        {onSetHalf && (
+          <span onClick={e => e.stopPropagation()} className="flex-shrink-0 flex items-center h-[18px]">
+            <DailyPriorityToggle
+              value={task.daily_priority}
+              onChange={half => onSetHalf(task, half)}
+              dense
+            />
+          </span>
+        )}
 
         {/*
           TAKING IT OUT OF THIS BOARD — not out of the app.

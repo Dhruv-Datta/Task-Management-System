@@ -24,16 +24,18 @@
   lands (that's a field on the task, not a place in a list).
 
   That slice is what /today's finished day is (see DayView): the day, across
-  every list, drawn as the same four columns. Three more props exist for it and
+  every list, drawn as the same four columns. Four more props exist for it and
   are the whole of the difference. `listFor` puts the list's badge on each card,
   because a board spanning thirteen projects has to say which one a card is
   from; `sort` hands the columns a comparator of their own, because a day reads
   in the order it happens rather than in a manual order that a slice cannot
-  keep; and `onRemove` puts a × on each card, because being IN a slice is a
+  keep; `onRemove` puts a × on each card, because being IN a slice is a
   decision — this task is today's — and a decision the day makes has to be
-  reversible from where you can see it. All three are `null` on /tasks, which is
-  exactly the board this file has always drawn: its cards ARE the list, and
-  there is nothing to take them out of.
+  reversible from where you can see it; and `onSetHalf` puts the must-do star
+  there, which is the one thing a day says about a task that a board of statuses
+  otherwise cannot show. All four are `null` on /tasks, which is exactly the
+  board this file has always drawn: its cards ARE the list, there is nothing to
+  take them out of, and no day for them to be half of.
 */
 
 import { useCallback, useMemo, useRef, useState } from 'react';
@@ -101,7 +103,7 @@ function RunHeader({ run }) {
 }
 
 function Column({
-  status, tasks, runs, listFor, strategy, onPatch, onOpen, onAdd, onRemove,
+  status, tasks, runs, listFor, strategy, onPatch, onOpen, onAdd, onRemove, onSetHalf,
   showCompleted, onToggleCompleted, vertical = false,
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: columnId(status.key) });
@@ -120,6 +122,8 @@ function Column({
           // /today's day, not /tasks' list. See TaskCard.
           onRemove={onRemove}
           removeLabel="Take off today"
+          // The must-do star, on a board that is a day. See TaskCard.
+          onSetHalf={onSetHalf}
           dragHandleProps={dragHandleProps}
           dense={vertical}
           compact
@@ -176,7 +180,7 @@ function Column({
 
 export default function TaskBoardView({
   tasks, clusterBy = null, sortBy = 'priority', sort: sortOverride = null, listFor = null,
-  onPatch, onOpen, onAdd, onRemove = null, onDragCommit,
+  onPatch, onOpen, onAdd, onRemove = null, onSetHalf = null, onDragCommit,
   showCompleted, onToggleCompleted, vertical = false, reorderable = true,
 }) {
   const [draftTasks, setDraftTasks] = useState(null);
@@ -297,6 +301,7 @@ export default function TaskBoardView({
             onOpen={onOpen}
             onAdd={onAdd}
             onRemove={onRemove}
+            onSetHalf={onSetHalf}
             showCompleted={showCompleted}
             onToggleCompleted={status.key === 'completed' ? onToggleCompleted : null}
             vertical={vertical}
@@ -336,6 +341,7 @@ export default function TaskBoardView({
                 list={listFor ? listFor(activeTask) : null}
                 onPatch={() => {}}
                 onOpen={() => {}}
+                onSetHalf={onSetHalf ? () => {} : null}
                 dense={vertical}
                 compact
               />

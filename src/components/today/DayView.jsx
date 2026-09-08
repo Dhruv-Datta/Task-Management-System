@@ -195,7 +195,7 @@ export default function DayView({
   day, dateLine, summary, timeline, nowMinutes, listFor, canvasRef, refreshing,
   dragPreview, onRefresh, onReplan, onPatch, onOpen, onUnschedule, onPlaceTask, onPlaceEvent,
   onPlaceExternal, onCreateEvent, onStatusBlock, onTagBlock, onRenameBlock, onDescribeBlock,
-  onDeleteBlock, tags, onBoardDrag, onAddTask, onRemoveFromToday,
+  onDeleteBlock, tags, onBoardDrag, onAddTask, onRemoveFromToday, onSetHalf,
   googleControl = null, googleSync = null,
 }) {
   const [layout, setLayout] = useDayLayout();
@@ -347,6 +347,10 @@ export default function DayView({
             onOpen={onOpen}
             onAdd={onAddTask}
             onRemove={onRemoveFromToday}
+            /* The must-do star. The column beside the calendar says the same
+               thing with its two headings; a board's columns are the statuses,
+               so here it has to be on the card. */
+            onSetHalf={onSetHalf}
             onDragCommit={onBoardDrag}
             showCompleted={showCompleted}
             onToggleCompleted={() => setShowCompleted(v => !v)}

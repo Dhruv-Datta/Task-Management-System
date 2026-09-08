@@ -1529,6 +1529,7 @@ export default function TodayPage() {
           menu, and it is the same write the flow's rows make.
         */
         onRemoveFromToday={removeFromToday}
+        onSetHalf={setHalf}
         dragPreview={dragPreview}
         googleControl={googleControl}
         googleSync={<GoogleSync google={google} sync={syncView} onSync={sendToGoogle} />}
