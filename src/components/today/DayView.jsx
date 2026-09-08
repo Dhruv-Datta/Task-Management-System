@@ -15,7 +15,11 @@
 
   The two are the same tasks. Ticking one off in the list greys its block, and
   everything in the list still opens the task itself, so this is a place you can
-  work from rather than a summary you have to leave in order to act.
+  work from rather than a summary you have to leave in order to act — including
+  dragging a row from the list onto an hour, which is the calendar step's own
+  gesture and works here for the same reason the blocks still move: a day that
+  changes at eleven is the normal case, and "Re-plan the day" should be how you
+  redo the whole thing, not the toll for giving one late arrival a time.
 
   AND THE SAME DAY AS A BOARD, behind the switch in the header. The calendar and
   the list beside it both answer WHEN and WHAT; neither of them answers where a
@@ -41,7 +45,8 @@
 */
 
 import { useState } from 'react';
-import { CalendarRange, LayoutGrid, Pencil, RefreshCw, X } from 'lucide-react';
+import { useDraggable } from '@dnd-kit/core';
+import { CalendarRange, GripVertical, LayoutGrid, Pencil, RefreshCw, X } from 'lucide-react';
 import { compareTasks, priorityMeta } from '@/lib/tasks';
 import { compareByPlan } from '@/lib/agenda';
 import { formatClock, clockToMinutes } from '@/lib/dates';
@@ -62,15 +67,45 @@ import Timeline from './Timeline';
   spine you can read down; a task with no block shows a dash there rather than
   shifting the title left, because a ragged left edge is what makes a list of
   twelve unreadable.
+
+  AND IT IS A DRAG HANDLE, exactly as the calendar step's row is (see TodayRow).
+
+  A finished plan is not a closed one. Something lands on today after you have
+  planned it — a due date arriving, a task typed in at eleven — and it shows up
+  in this column with a dash where its hour should be. Until now the only way to
+  give it one was "Re-plan the day": four steps re-opened to make a single drag
+  that the grid right beside this column was already able to accept. So the row
+  carries the same grip, with the same id and the same payload, and the page's
+  DndContext — which is up on the finished day too — does the rest.
+
+  Not on finished work. Dragging something you have already done to another hour
+  is rewriting the record of the day rather than planning it, the same line the
+  × on the row draws.
 */
 function DayTaskRow({ task, list, onPatch, onOpen, onRemove }) {
   const start = clockToMinutes(task.scheduled_start);
   const urgent = task.priority === 'urgent';
 
+  /*
+    Same id and same data as the flow's row: `onDragEnd` up on the page looks up
+    the task by `taskId` and places it, so there is nothing here that knows
+    whether the day is still being planned or already is.
+  */
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `plan-${task.id}`,
+    data: { type: 'task', taskId: task.id },
+    disabled: !!task.done,
+  });
+
+  const stop = e => e.stopPropagation();
+
   return (
     <div
+      ref={setNodeRef}
       onClick={() => onOpen(task)}
-      className="group relative flex items-start gap-2 pl-3 pr-2 py-[7px] rounded-xl cursor-pointer hover:bg-gray-50 transition-colors"
+      className={`group relative flex items-start gap-1.5 pl-1 pr-2 py-[7px] rounded-xl cursor-pointer transition-colors ${
+        isDragging ? 'opacity-40 bg-gray-50' : 'hover:bg-gray-50'
+      }`}
     >
       {urgent && !task.done && (
         <span
@@ -80,6 +115,26 @@ function DayTaskRow({ task, list, onPatch, onOpen, onRemove }) {
         />
       )}
 
+      {/*
+        THE GRIP, holding its width whether or not it can be used: the dots
+        appear on hover and are gone on finished rows, but the box is always
+        there, so the clock column beside it stays the straight spine the whole
+        list is read down. Drawn as the flow's row draws it — full row height,
+        running invisibly right until the clock, pulled back under its
+        neighbour so nothing is spaced any differently than before.
+      */}
+      <span
+        {...(task.done ? {} : attributes)}
+        {...(task.done ? {} : listeners)}
+        onClick={stop}
+        title={task.done ? undefined : 'Drag onto the timeline'}
+        className={`flex-shrink-0 self-stretch -my-[7px] py-[7px] -mr-3 w-[26px] flex items-center text-gray-300 transition-all ${
+          task.done ? '' : 'opacity-0 group-hover:opacity-100 hover:text-gray-600 cursor-grab active:cursor-grabbing'
+        }`}
+      >
+        {!task.done && <GripVertical size={15} />}
+      </span>
+
       <span
         className={`flex-shrink-0 w-[52px] pt-[1px] text-[11px] font-semibold tabular-nums ${
           start === null ? 'text-gray-300' : task.done ? 'text-gray-300' : 'text-gray-500'
@@ -88,7 +143,7 @@ function DayTaskRow({ task, list, onPatch, onOpen, onRemove }) {
         {start === null ? '—' : formatClock(start)}
       </span>
 
-      <span onClick={e => e.stopPropagation()} className="flex-shrink-0 mt-[1px] flex items-center">
+      <span onClick={stop} className="flex-shrink-0 mt-[1px] flex items-center">
         <StatusPicker status={task.status} onSelect={s => onPatch(task.id, { status: s })} />
       </span>
 
