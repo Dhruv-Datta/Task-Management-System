@@ -207,6 +207,19 @@ deadline has arrived, and nothing else. Not high priority, not hard, not
 yesterday's undated leftovers — a day that inherits every leftover is a day you
 did not plan; only a deadline brings work forward by itself.
 
+**Yesterday's plan comes off when the day turns over** (at 4am, like everything
+else here). A task you planned for yesterday and did not finish still carries
+that day's date and the hour you gave it on that day's calendar; when the day
+turns, both are cleared and it goes back to being an open task you have not
+planned yet — same list, same status, same due date, and the same estimate,
+because how long you learnt it takes is still true this morning. So today starts
+clean, and yesterday's unfinished work is offered back to you in *Projects* like
+anything else, to be chosen and given a **new** hour if you still want it —
+rather than re-booking itself for 2pm because that is when you meant to do it
+yesterday. Work that is genuinely **owed** is the exception, and it is not swept:
+its deadline carries it onto today by itself, wearing no hour at all until you
+give it one.
+
 Late is here rather than one step further on in *Coming up*, and that is
 deliberate: work you are behind on is not a forecast. A step called "coming up"
 is read as one, and keeping the most overdue thing you own inside it meant the
@@ -329,8 +342,8 @@ marks are, a glyph you take in while scanning a column, and the two together are
 the whole of "what is this going to cost me". On a board card it sits in the top
 right, at the other end of the title's line from the marks.
 
-**None of it is automatic**, apart from the due-today seed. Nothing else plans a
-task for you, nothing auto-arranges the timeline, and there is no suggested
+**None of it is automatic**, apart from the due-today seed and the sweep that
+clears yesterday's unfinished plan. Nothing else plans a task for you, nothing auto-arranges the timeline, and there is no suggested
 pile. The app knows what is late and how long you said things take; you say what
 today is.
 
@@ -607,8 +620,9 @@ src/
                            catalog you choose from, and the timeline layout
                            (blocks, columns, the next free slot). Pure functions.
     dayPlan.js             the planning FLOW: the four steps and their order,
-                           the per-day state that is stored, and the seed that
-                           writes the owed day down. Pure functions.
+                           the per-day state that is stored, the seed that
+                           writes the owed day down, and the sweep that takes
+                           yesterday's failed plan back off. Pure functions.
     googleEvents.js        the Google model: a raw event turned into the day's
                            own shape (wall clock in your timezone, colour,
                            clipped at midnight), what is dropped from a day and
@@ -634,7 +648,7 @@ supabase/schema.sql         the entire database: two tables
 scripts/                    hash-password.mjs, check-db.mjs
 tests/model.test.mjs        the task model: `npm test`
 tests/agenda.test.mjs       the planning day's arrangement
-tests/dayPlan.test.mjs      the flow: step order, stored state, the seed
+tests/dayPlan.test.mjs      the flow: step order, stored state, seed and sweep
 tests/googleEvents.test.mjs the Google model: what the day draws, what it drops,
                             and what it sends back
 ```

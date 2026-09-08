@@ -12,7 +12,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   EMPTY_DAY_PLAN, FIRST_STEP, LAST_STEP, PLAN_STEPS, PLAN_STEP_KEYS, nextStepKey,
-  normalizeDayPlan, owedTodaySeed, prevStepKey, prunePlans, stepIndex,
+  normalizeDayPlan, owedTodaySeed, prevStepKey, prunePlans, staleDaySweep, stepIndex,
 } from '../src/lib/dayPlan.js';
 import { normalizeTask } from '../src/lib/tasks.js';
 import { addDaysISO, todayISO } from '../src/lib/dates.js';
@@ -127,6 +127,75 @@ test('the seed settles: what it has placed, and what you took off, stay put', ()
   // And it is reversible: give it a date that has arrived and it is back.
   const restored = [mk({ id: 'late', due_date: addDaysISO(today, -2) })];
   assert.deepEqual(owedTodaySeed(restored, today).map(t => t.id), ['late']);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The sweep: yesterday's failed plan
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('a plan that did not happen comes off when the day turns over', () => {
+  const yesterday = addDaysISO(today, -1);
+  const swept = staleDaySweep([
+    // The case this exists for: planned yesterday, given an hour on yesterday's
+    // calendar, never finished. The day is over; the plan comes off.
+    mk({ id: 'blocked', planned_date: yesterday, scheduled_start: '14:00', scheduled_minutes: 60 }),
+    // Planned yesterday and never placed. Same failed plan, no block on it.
+    mk({ id: 'unplaced', planned_date: yesterday }),
+    // Older than yesterday, and a due date in the FUTURE — still a plan that is
+    // over, and the deadline has nothing to say about which day you work on it.
+    mk({ id: 'stale', planned_date: addDaysISO(today, -12), due_date: tomorrow }),
+
+    // ── Left alone ──────────────────────────────────────────────────────────
+    // Today's plan has not failed; it has not finished happening.
+    mk({ id: 'planned', planned_date: today, scheduled_start: '09:00' }),
+    // Tomorrow's even less so.
+    mk({ id: 'thursday', planned_date: tomorrow }),
+    // Never on a day at all; there is no plan here to take off.
+    mk({ id: 'unplanned' }),
+    // Finished yesterday. That date is the receipt for the day it was earned
+    // on, not a plan that failed, and `plannedDay().done` draws it.
+    mk({ id: 'finished', planned_date: yesterday, scheduled_start: '10:00', status: 'completed' }),
+    // OWED, so the seed is already carrying it forward and clearing the stale
+    // block on the way. Sweeping it here would be a second write racing that.
+    mk({ id: 'late', planned_date: yesterday, due_date: yesterday, scheduled_start: '11:00' }),
+    mk({ id: 'duetoday', planned_date: yesterday, due_date: today }),
+  ], today);
+
+  assert.deepEqual(swept.map(t => t.id), ['blocked', 'unplaced', 'stale']);
+});
+
+test('the sweep and the seed never touch the same task', () => {
+  // They are complements — the seed takes what is owed, the sweep takes the
+  // rest — so a stale task belongs to exactly one of them, whatever it carries.
+  const yesterday = addDaysISO(today, -1);
+  const tasks = [
+    mk({ id: 'a', planned_date: yesterday }),
+    mk({ id: 'b', planned_date: yesterday, due_date: yesterday }),
+    mk({ id: 'c', planned_date: yesterday, due_date: today }),
+    mk({ id: 'd', planned_date: yesterday, due_date: tomorrow }),
+    mk({ id: 'e', planned_date: yesterday, status: 'completed' }),
+    mk({ id: 'f', planned_date: today }),
+  ];
+  const seeded = new Set(owedTodaySeed(tasks, today).map(t => t.id));
+  const swept = new Set(staleDaySweep(tasks, today).map(t => t.id));
+  for (const id of swept) assert.ok(!seeded.has(id), `${id} is in both lists`);
+});
+
+test('the sweep settles: once the plan is off, there is nothing left to do', () => {
+  // Clearing `planned_date` clears the block with it (plannedPatch), and what
+  // comes back is an ordinary open task the sweep has no further opinion on.
+  const before = [mk({
+    id: 'leftover', planned_date: addDaysISO(today, -1), scheduled_start: '14:00', estimated_minutes: 60,
+  })];
+  assert.deepEqual(staleDaySweep(before, today).map(t => t.id), ['leftover']);
+
+  const after = [mk({
+    id: 'leftover', planned_date: null, scheduled_start: null, estimated_minutes: 60,
+  })];
+  assert.deepEqual(staleDaySweep(after, today), []);
+  // And it is free to be planned again today, wearing a new hour.
+  const replanned = [mk({ id: 'leftover', planned_date: today, scheduled_start: '16:00' })];
+  assert.deepEqual(staleDaySweep(replanned, today), []);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

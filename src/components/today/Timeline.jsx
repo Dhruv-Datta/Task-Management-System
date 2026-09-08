@@ -58,7 +58,10 @@
                                   quarter hour, and it stays under the cursor
                                   wherever on the block you took hold of it.
     drag its top or bottom edge   change when it starts, or when it ends. The
-                                  other edge stays exactly where it was.
+                                  other edge stays exactly where it was. On a
+                                  block too short to hold two grab strips and a
+                                  middle, the strips give way — every block can
+                                  be picked up and moved, however small.
     drag empty canvas             draw a new commitment the length of the drag.
     click empty canvas            the same thing, an hour long.
     click a block                 open what it is.
@@ -123,6 +126,31 @@ const COMMITMENT_COLOR = '#64748b';
 /** The grid every gesture lands on, and the smallest block one can leave behind. */
 const SNAP = 15;
 const MIN_BLOCK_MINUTES = 15;
+
+/*
+  THE THREE ZONES OF A BLOCK, and why the middle one is the one that is
+  guaranteed.
+
+  A block has three gestures stacked down it: resize from the top, move, resize
+  from the bottom. The edges want a fixed 8px, which is the smallest strip a
+  pointer reliably finds — and on the shortest block there is, that does not
+  fit. A quarter hour is fourteen pixels tall; two 8px edges are sixteen. They
+  met in the middle, then overlapped it, and the move zone was gone: every
+  press on a 15-minute block landed on a resize edge, so the block could be
+  made LONGER in either direction and could not be moved at all. Exactly
+  backwards — the smallest thing on the grid is the one you most often want to
+  shove half an hour later, and it is already the length you meant it to be.
+
+  So the edges give way to the middle rather than the other way round. They take
+  what is left once the move zone has had its six pixels, down to a floor of
+  three, and all three gestures are on every block at every size. Resizing is
+  the one with somewhere else to go if three pixels defeat you — the Schedule
+  form takes a start and a length as numbers, and the drag is the convenience.
+  Moving has nowhere else.
+*/
+const EDGE_MAX = 8;
+const EDGE_MIN = 3;
+const MOVE_ZONE_MIN = 6;
 
 /** Travel before a press becomes a drag, so a click stays a click. */
 const SLOP = 4;
@@ -584,9 +612,15 @@ function Block({
 
   const tight = type === TYPE.tight;
 
-  // 8px of grab area top and bottom: big enough to hit, small enough that the
-  // middle of a 30-minute block is still the block.
-  const edgeClass = 'absolute left-0 right-0 h-[8px] cursor-ns-resize z-10';
+  /*
+    The grab area top and bottom: 8px wherever the block can spare it, and
+    whatever is left over the move zone's six once it cannot. See EDGE_MAX.
+    Measured off the DRAFT height like everything else on the face, so the zones
+    of a block you are stretching are the zones of the block you are about to
+    commit.
+  */
+  const edgeHeight = clamp(Math.floor((box.height - MOVE_ZONE_MIN) / 2), EDGE_MIN, EDGE_MAX);
+  const edgeClass = 'absolute left-0 right-0 cursor-ns-resize z-10';
 
   /*
     Where a block sits in the stack, and it is the same rule it has always been:
@@ -687,23 +721,25 @@ function Block({
           block is small and the day is a wall of them, so two handles appearing
           on every one you pass the pointer over is clutter on top of the ×
           that is already there. The zone still announces itself — the cursor
-          turns to ns-resize on the 8px that resize and stays a grab hand on the
-          middle that moves, which is the same signal a window edge gives and
-          costs the block no ink. */}
+          turns to ns-resize on the strip that resizes and stays a grab hand on
+          the middle that moves, which is the same signal a window edge gives
+          and costs the block no ink. How wide that strip is depends on how much
+          the block has to spare; the middle is served first (see EDGE_MAX), so
+          there is no block too short to pick up. */}
       {movable && (
         <>
           <span
             onPointerDown={begin('top')}
             onClick={e => e.stopPropagation()}
             title="Drag to change when it starts"
-            style={{ top: 0, touchAction: 'none' }}
+            style={{ top: 0, height: edgeHeight, touchAction: 'none' }}
             className={edgeClass}
           />
           <span
             onPointerDown={begin('bottom')}
             onClick={e => e.stopPropagation()}
             title="Drag to change when it ends"
-            style={{ bottom: 0, touchAction: 'none' }}
+            style={{ bottom: 0, height: edgeHeight, touchAction: 'none' }}
             className={edgeClass}
           />
         </>

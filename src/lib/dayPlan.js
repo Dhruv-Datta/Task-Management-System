@@ -33,7 +33,7 @@
 */
 
 import { addDaysISO, todayISO } from './dates.js';
-import { isOwedToday } from './tasks.js';
+import { isDone, isOwedToday } from './tasks.js';
 
 /*
   The steps, in the only order they make sense in.
@@ -165,7 +165,55 @@ export function owedTodaySeed(tasks, today = todayISO()) {
   day you did not plan, and by Thursday it is just the backlog wearing today's
   date. Only a DEADLINE brings work forward by itself, because only a deadline
   is a fact rather than a plan you already changed your mind about once.
+
+  `plannedDay` (lib/agenda) has always read it that way, so a leftover has never
+  DRAWN on today. `staleDaySweep` is the write that makes the columns say the
+  same thing — see below.
 */
+
+/**
+ * YESTERDAY'S FAILED PLAN, TAKEN BACK OFF THE TASK.
+ *
+ * A task you planned for a day and did not finish keeps carrying that day: a
+ * `planned_date` of the 7th and, if you gave it an hour, a `scheduled_start` of
+ * 2pm. Nothing DRAWS it on today — `plannedDay` only ever asks about today's
+ * date, and the comment above is why — but the columns still claim a plan that
+ * is over, and every reader that asks the task rather than the day believes
+ * them: `isScheduled` says yes, the day's own "3 of 5 placed" count includes it
+ * for the beat before the seed writes, and step 3 offers it back to you already
+ * wearing a time you chose for a day that has been and gone.
+ *
+ * So when the day turns over — 4am, not midnight, because `todayISO` is what
+ * decides which day you are in — the plan that did not happen comes off, and
+ * the task goes back to being what it was before you planned it: open, undated
+ * on the day axis, unscheduled, free to be picked up again on step 1, 2 or 3
+ * and given a NEW hour that means something. The estimate stays (what you
+ * learnt about how long it takes is still true), and so does the due date, the
+ * status, the list and the notes. This clears the PLAN, not the work.
+ *
+ * What it deliberately leaves alone:
+ *
+ *   OWED WORK        due today or already late. `owedTodaySeed` above is
+ *                    already bringing that forward onto today and clearing the
+ *                    stale block on the way (a deadline is a fact, not a plan),
+ *                    so sweeping it here would be a second write racing the
+ *                    first. The two sets are disjoint by exactly that test.
+ *   FINISHED WORK    a done task keeps the day it was done on. That is the
+ *                    receipt `plannedDay().done` draws, and it is half of what
+ *                    the page is for.
+ *   TODAY, AND AFTER planned_date >= today is a plan that has not failed yet.
+ *
+ * Like the seed, it is a list rather than a write: the caller (/today) does the
+ * writing, so this stays pure and testable.
+ */
+export function staleDaySweep(tasks, today = todayISO()) {
+  return tasks.filter(task => (
+    !!task?.planned_date
+    && task.planned_date < today
+    && !isDone(task)
+    && !isOwedToday(task, today)
+  ));
+}
 
 /** How much of the past `day_plans` keeps. Same window as the day's events. */
 export const PLAN_PRUNE_DAYS = 30;

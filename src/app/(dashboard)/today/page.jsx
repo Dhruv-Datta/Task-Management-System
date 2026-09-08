@@ -77,7 +77,7 @@ import {
   attention, dayTimeline, daySummary, listIndex, listOf, nextFreeStart, plannedDay,
 } from '@/lib/agenda';
 import {
-  EMPTY_DAY_PLAN, FIRST_STEP, nextStepKey, owedTodaySeed, prevStepKey,
+  EMPTY_DAY_PLAN, FIRST_STEP, nextStepKey, owedTodaySeed, prevStepKey, staleDaySweep,
 } from '@/lib/dayPlan';
 import {
   createTask, deleteGoogleEvent, disconnectGoogle, fetchDayEvents, fetchDayPlan, fetchGoogleDay,
@@ -716,6 +716,67 @@ export default function TodayPage() {
   }, [loading, patchTask, plan, toSeed, today]);
 
   /*
+    THE SWEEP: yesterday's failed plan, taken back off the task.
+
+    The seed above brings work FORWARD. This is the other half of the turn of
+    the day, and it puts work BACK: a task you planned for a day and did not
+    finish still carries that day's `planned_date`, and the hour you gave it on
+    that day's calendar. Nothing draws it on today — membership is derived, and
+    `plannedDay` only ever asks about today — but the columns still describe a
+    plan that is over, and everything that asks the TASK rather than the DAY
+    believes them.
+
+    So when the day turns over at 4am (`today` is state here and re-reads
+    `todayISO` on the minute, so this fires while the tab sits open overnight,
+    not only on the next load), the plan comes off: `planned_date` cleared,
+    which takes the block and the must-do/optional half with it (plannedPatch
+    owns those). The task is not touched otherwise — same list, same status,
+    same due date, same notes, and the same estimate, because how long you
+    learnt the thing takes is still true this morning. It goes back to being an
+    open task you have not planned yet, which is exactly what it is, and step 1,
+    2 or 3 can pick it up again and step 4 can give it an hour that means
+    something.
+
+    It does NOT touch what the seed is already handling. `staleDaySweep` tests
+    `!isOwedToday`, the exact complement of the seed's test, so no task is ever
+    in both lists and the two effects can never write over each other: a late
+    deadline is carried forward and re-blocked by the seed, everything else is
+    put back by this. Nor does it touch a FINISHED task's date — that is the
+    day's receipt (`plannedDay().done`) and it belongs to the day it was earned
+    on.
+
+    Same two refs as the seed and for the same two reasons: `sweepingRef` stops
+    the effect re-entering while the writes are in flight, and `sweptFailedRef`
+    stops a task the database will not accept from being retried forever. Only
+    failures are remembered, and a success needs no record: it no longer has a
+    stale planned_date, so it leaves the list by itself.
+  */
+  const sweepingRef = useRef(false);
+  const sweptFailedRef = useRef(new Set());
+
+  const toSweep = useMemo(() => staleDaySweep(tasks, today), [tasks, today]);
+
+  useEffect(() => {
+    if (loading || !plan || sweepingRef.current) return;
+
+    const fresh = toSweep.filter(task => !sweptFailedRef.current.has(task.id));
+    if (fresh.length === 0) return;
+
+    sweepingRef.current = true;
+
+    (async () => {
+      const results = await Promise.all(fresh.map(task => (
+        patchTask(task.id, { planned_date: null }).then(res => [task.id, !!res?.ok])
+      )));
+      for (const [id, ok] of results) {
+        if (ok) sweptFailedRef.current.delete(id);
+        else sweptFailedRef.current.add(id);
+      }
+      sweepingRef.current = false;
+    })();
+  }, [loading, patchTask, plan, toSweep]);
+
+  /*
     Taking something off the day: the seed's counterpart, and defined next to it
     because the two only make sense read together.
 
@@ -745,10 +806,15 @@ export default function TodayPage() {
     patchTask(task.id, patch);
   }, [patchTask, today]);
 
-  // A new day is a new form: both guards reopen or tomorrow never seeds.
+  // A new day is a new form: every guard reopens, or tomorrow neither seeds nor
+  // sweeps. The failure sets go with them — a write the database refused
+  // yesterday is worth one more try today, and holding the refusal across the
+  // turn of the day would silently strand the task on the day that is over.
   useEffect(() => {
     seedingRef.current = false;
     failedRef.current = new Set();
+    sweepingRef.current = false;
+    sweptFailedRef.current = new Set();
   }, [today]);
 
   const step = plan?.step || FIRST_STEP;
