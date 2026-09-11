@@ -142,6 +142,17 @@ const cursorTopLeft = ({ activatorEvent, draggingNodeRect, transform }) => {
   };
 };
 
+/*
+  Only the PAGE auto-scrolls under a drag. dnd-kit tries the innermost scroll
+  container first, and the calendar step's pinned column is one: held near the
+  bottom of the screen on the way to a late hour, the column would slide to its
+  end before the page moved at all. Nothing is dropped inside that column, so a
+  scroller marked `data-drag-scroll="off"` is skipped.
+*/
+const dragAutoScroll = {
+  canScroll: element => element.getAttribute?.('data-drag-scroll') !== 'off',
+};
+
 export default function TodayPage() {
   const { tasks, setTasks, tasksRef, patchTask, removeTask, writeError, setWriteError } = useTaskStore();
 
@@ -1669,6 +1680,7 @@ export default function TodayPage() {
         <DndContext
           sensors={sensors}
           collisionDetection={pointerWithin}
+          autoScroll={dragAutoScroll}
           onDragStart={onDragStart}
           onDragMove={onDragMove}
           onDragEnd={onDragEnd}

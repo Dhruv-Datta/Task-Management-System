@@ -81,16 +81,16 @@ export default function CalendarStep({
 
   return (
     /*
-      Two columns wide, one under the other on a narrow screen, and NEITHER of
-      them scrolls: the grid is drawn at its full height and the column beside
-      it is as long as your unplaced work is. The page is what moves, so the
-      hour you are looking at and the task you are about to drag into it move
-      together — which is the whole gesture this step is made of.
+      Two columns wide, one under the other on a narrow screen. The grid is
+      drawn at its full height and the page is what moves, so the hour you are
+      looking at changes as you scroll.
 
-      Not pinned, either. A column stuck to the top of the screen that is longer
-      than the screen is a column whose last few rows you can never reach; the
-      drag that needs a far-off hour is served by the auto-scroll instead (see
-      Timeline), which moves the page under the task you are already holding.
+      The column beside it is PINNED on a wide screen, so the work still to
+      place stays next to whichever hour you have scrolled to — dragging into
+      6pm should not mean scrolling back up to find the task first. Pinned
+      means capped at the screen's height with its own scroll, because a stuck
+      column longer than the screen is one whose last rows you can never reach.
+      Its title stays put above that scroll, so the count is always in view.
     */
     <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(320px,420px)] gap-5 items-start">
       <Timeline
@@ -117,7 +117,7 @@ export default function CalendarStep({
         googleControl={googleControl}
       />
 
-      <Panel>
+      <Panel className="lg:sticky lg:top-24 lg:max-h-[calc(100vh-7rem)] lg:flex lg:flex-col lg:overflow-hidden">
         {/*
           Title and count, and nothing else. Not a hint, and not a total of the
           hours still to place: a sum of guesses is a number you cannot act on,
@@ -125,7 +125,8 @@ export default function CalendarStep({
         */}
         <PanelHead title="Not placed yet" count={unplaced.length} />
 
-        <div className="px-2 pb-3">
+        {/* `data-drag-scroll`: see dragAutoScroll on the page. */}
+        <div data-drag-scroll="off" className="px-2 pb-3 lg:min-h-0 lg:overflow-y-auto">
           {unplaced.length === 0 ? (
             <div className="px-4 py-10 text-center">
               <CalendarClock size={18} className="inline-block mb-2 text-gray-300" />
