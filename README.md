@@ -482,8 +482,12 @@ sent-then-rearranged day look identical on a timeline.
 
 1. New project → **APIs & Services → Library** → enable **Google Calendar API**.
 2. **OAuth consent screen** → *External* is right for a personal Google account.
-   Add yourself under **Test users**. An app in testing needs no verification;
-   it just has to be re-consented every six months.
+   Then **publish** it (*Audience → Publish app*). While it is in *Testing*,
+   Google expires the refresh token after **seven days**, so the calendar needs
+   reconnecting every week. Published but unverified is fine for your own
+   account: connecting just shows a "Google hasn't verified this app" step
+   (*Advanced → continue*). Reconnect once after publishing — a token issued
+   during testing keeps its seven-day expiry.
 3. **Credentials → Create credentials → OAuth client ID → Web application.**
    Under *Authorized redirect URIs* add both, exactly:
 
@@ -501,7 +505,13 @@ sent-then-rearranged day look identical on a timeline.
 
 `redirect_uri_mismatch` on the consent screen is always step 3: Google matches
 those URIs character for character, so a missing `/api`, a trailing slash, or
-`http` where you deployed `https` is the whole of it.
+`http` where you deployed `https` is the whole of it. On Vercel, connect from the
+project's stable production domain: each deployment's own
+`<project>-<hash>-<team>.vercel.app` URL is a different origin, and is not
+registered.
+
+**It stays linked**: the saved grant is only ever deleted by **Disconnect**. If Google refuses it (an expired or revoked token),
+it is kept and the chip turns into **Reconnect Google** for the same account.
 
 **Where the grant lives**: one refresh token, server-side, in `app_settings`
 under `google_calendar` — a table whose anon key can read nothing at all. No

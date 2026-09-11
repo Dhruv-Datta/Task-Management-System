@@ -79,9 +79,9 @@ export const STATE_COOKIE_MAX_AGE = 600; // ten minutes to finish a consent scre
     not connected   configured, but nobody has granted access yet. The page
                     offers Connect. 409 — a state, not a fault.
     revoked         we HAD a grant and Google has stopped honouring it (access
-                    removed from the Google account page, or the app's secret
-                    rotated). The stored token is dropped so the page offers
-                    Connect again rather than failing forever. 401.
+                    removed from the Google account page, or a refresh token
+                    that expired). The stored grant is KEPT — only Disconnect
+                    deletes it — and the page offers Reconnect. 401.
 */
 export class GoogleNotConfiguredError extends Error {
   constructor() {
@@ -142,9 +142,28 @@ export function assertGoogleConfigured() {
  * exchange, which Google also requires to agree with each other.
  */
 export function redirectUriFor(request) {
+  const origin = request.nextUrl?.origin || new URL(request.url).origin;
+  const derived = new URL('/api/google/callback', origin).toString();
   const configured = googleConfig().redirectUri;
-  if (configured) return configured;
-  return new URL('/api/google/callback', request.nextUrl?.origin || new URL(request.url).origin).toString();
+  if (!configured) return derived;
+
+  /*
+    A localhost override is only ever right ON localhost. It is the value that
+    gets copied from .env.local into the deployment's settings, and there it
+    sends Google's consent screen back to a machine that is not the one you are
+    using — so a deployed request ignores it. A public override (the proxy case
+    above) still wins everywhere.
+  */
+  try {
+    if (isLoopback(new URL(configured).hostname) && !isLoopback(new URL(origin).hostname)) return derived;
+  } catch {
+    return derived;
+  }
+  return configured;
+}
+
+function isLoopback(hostname) {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -296,14 +315,20 @@ export async function getAccessToken(supabase) {
     });
   } catch (err) {
     /*
-      `invalid_grant` is Google saying the refresh token is dead: access removed
-      from the account's permissions page, the password changed, six months
-      unused, or the OAuth client rebuilt. Keeping it would mean every request
-      from here on fails identically forever, with a page still claiming to be
-      connected — so it is dropped, and the page goes back to offering Connect.
+      `invalid_grant` is Google saying the refresh token no longer works: access
+      removed from the account's permissions page, six months unused, or — the
+      common one — an OAuth app still in "Testing", whose refresh tokens expire
+      after SEVEN DAYS.
+
+      The stored grant is NOT deleted. Only Disconnect does that. Deleting it
+      here turned one refusal into a silent disconnect, for every device at
+      once, and lost which account it was. Kept, the page says "Reconnect" for
+      that account, and a refusal that was not really about the token (one
+      environment with a different OAuth client, a bad moment at Google) heals
+      itself on the next load. Reconnecting simply overwrites it.
     */
     if (err.oauthError === 'invalid_grant') {
-      await clearConnection(supabase);
+      tokenCache = null;
       throw new GoogleAuthError();
     }
     throw err;

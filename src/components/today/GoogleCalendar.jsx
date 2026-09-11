@@ -51,9 +51,9 @@ function connectLabel(reason) {
   return 'Connect Google';
 }
 
-function connectHint(reason) {
+function connectHint(reason, email) {
   if (reason === 'reauth_required') {
-    return 'Google has revoked this app’s access — connect again to keep drawing your calendar';
+    return `Google stopped accepting the saved sign-in${email ? ` for ${email}` : ''} — reconnect to keep drawing your calendar`;
   }
   return 'Show your real Google Calendar on this timeline, and send the day back to it when you finish planning';
 }
@@ -78,7 +78,7 @@ export function GoogleChip({ google, count, allDayCount = 0, refreshing, onRefre
       <button
         type="button"
         onClick={startConnect}
-        title={connectHint(google.reason)}
+        title={connectHint(google.reason, google.email)}
         className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-lg transition-colors ${
           google.reason === 'reauth_required'
             ? 'text-amber-700 bg-amber-50 hover:bg-amber-100'

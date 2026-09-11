@@ -50,13 +50,15 @@ function resolveTimeZone(raw) {
   return isValidTimeZone(local) ? local : 'UTC';
 }
 
-function disconnected(date, reason) {
+function disconnected(date, reason, connection = null) {
   return apiJson({
     date,
     configured: reason !== 'unconfigured',
     connected: false,
-    email: null,
-    connectedAt: null,
+    // Still named when the grant is saved but Google refused it, so the page
+    // can say which account to reconnect.
+    email: connection?.email || null,
+    connectedAt: connection?.connected_at || null,
     events: [],
     calendars: 0,
     failed: [],
@@ -133,10 +135,10 @@ export async function GET(request) {
         reason: null,
       });
     } catch (err) {
-      // The grant died between requests. `getAccessToken` has already dropped
-      // it, so all that is left is to say so: the page offers Connect again.
+      // Google refused the saved grant. It is kept (only Disconnect deletes
+      // it), so all that is left is to say so: the page offers Reconnect.
       if (err instanceof GoogleAuthError || err instanceof GoogleNotConnectedError) {
-        return disconnected(date, err.code);
+        return disconnected(date, err.code, connection);
       }
       throw err;
     }
