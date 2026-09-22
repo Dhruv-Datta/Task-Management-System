@@ -41,13 +41,15 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  DndContext, DragOverlay, PointerSensor, closestCenter, useDroppable, useSensor, useSensors,
+  DndContext, DragOverlay, PointerSensor, closestCenter, pointerWithin, useDroppable, useSensor,
+  useSensors,
 } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Plus } from 'lucide-react';
 import {
-  STATUSES, boardSort, clusterTasks, columnId, findColumn, finalizeTaskDrag, moveTaskToStatus,
+  STATUSES, boardSort, clusterTasks, columnId, findColumn, finalizeTaskDrag, isColumnId,
+  moveTaskToStatus,
 } from '@/lib/tasks';
 import { TaskCard } from './TaskItems';
 import { OVERLAY_Z, ShowCompletedToggle } from './TaskPickers';
@@ -76,6 +78,89 @@ import { OVERLAY_Z, ShowCompletedToggle } from './TaskPickers';
 */
 const noSorting = () => null;
 
+/*
+  WHICH COLUMN YOU MEANT, and it is the one under the POINTER.
+
+  `closestCenter` — what this board used to ask — answers a different question:
+  which droppable's CENTRE is nearest the centre of the card in your hand. On a
+  row of four full-height columns that is barely a question about columns at
+  all. Every column stretches to the tallest pile, so all four centres sit at
+  the same height, half way down the longest one; a card near the top or the
+  bottom of the board is hundreds of pixels from every one of them, while the
+  card directly above or below the one you picked up is a few dozen. Drag from
+  the top of a long column and the nearest centre is a card in the column you
+  are trying to LEAVE, so the drop lands back where it started.
+
+  What is left working is a band across the middle of the board, plus whichever
+  columns happen to hold a card at the height you are dragging at — and a column
+  that does hold one also steals the drops aimed past it at its neighbours. One
+  column takes cards reliably and the other three refuse, which is the bug this
+  replaces and reads as nothing to do with geometry at all.
+
+  It also MOVES while you hold the card. Every cross-column move re-heights the
+  columns, which slides all four centres, which can hand the card straight back
+  to the column it just left.
+
+  So: whatever is under the pointer, which is the only thing a person dragging a
+  card is aiming with. `pointerWithin` sorts what it finds by how tightly the
+  rectangle wraps the pointer, so a card wins over the column containing it —
+  that is a within-column reorder, and it still works where a board allows one —
+  and an empty stretch of column is the column.
+
+  The one place the pointer can be over nothing while still plainly meaning
+  something is the gutter between two columns, so a miss falls back to the
+  nearest column by EDGE distance, within a gutter's width. Let go anywhere
+  further out and there is no collision at all, which is what makes dragging a
+  card off the board the way to change your mind about it.
+*/
+const GUTTER = 24;
+
+/*
+  The four column ids, and why they are a constant rather than a lookup.
+
+  A column's rectangle is measured when the drag starts and then only again if
+  that column RESIZES — and on this board a column resizing is never a private
+  event. The columns stretch to the tallest pile, so a card crossing from one to
+  another re-heights all four at once, and the three that were only following
+  along get no resize of their own to notice. Their stored rectangles go stale
+  mid-drag, and the pointer test above starts asking about columns that have
+  moved.
+
+  `updateMeasurementsFor` is dnd-kit's answer: any one of them changing shape
+  re-measures the set.
+*/
+const COLUMN_IDS = STATUSES.map(status => columnId(status.key));
+
+function boardCollision(args) {
+  const { droppableContainers, droppableRects, pointerCoordinates } = args;
+
+  const under = pointerWithin(args);
+  if (under.length) return under;
+  // Only a keyboard drag has no pointer to ask about.
+  if (!pointerCoordinates) return closestCenter(args);
+
+  let nearest = null;
+  let nearestDistance = Infinity;
+  for (const container of droppableContainers) {
+    // Columns only: a card is never the thing you were aiming at from outside
+    // the column that holds it.
+    if (!isColumnId(container.id)) continue;
+    const rect = droppableRects.get(container.id);
+    if (!rect) continue;
+    const dx = Math.max(rect.left - pointerCoordinates.x, 0, pointerCoordinates.x - rect.right);
+    const dy = Math.max(rect.top - pointerCoordinates.y, 0, pointerCoordinates.y - rect.bottom);
+    const distance = Math.hypot(dx, dy);
+    if (distance <= GUTTER && distance < nearestDistance) {
+      nearest = container;
+      nearestDistance = distance;
+    }
+  }
+
+  return nearest
+    ? [{ id: nearest.id, data: { droppableContainer: nearest, value: nearestDistance } }]
+    : [];
+}
+
 function SortableCard({ task, children }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
   const style = {
@@ -103,10 +188,20 @@ function RunHeader({ run }) {
 }
 
 function Column({
-  status, tasks, runs, listFor, strategy, onPatch, onOpen, onAdd, onRemove, onSetHalf,
+  status, tasks, runs, listFor, strategy, isOver, onPatch, onOpen, onAdd, onRemove, onSetHalf,
   showCompleted, onToggleCompleted, vertical = false,
 }) {
-  const { setNodeRef, isOver } = useDroppable({ id: columnId(status.key) });
+  /*
+    `isOver` is the board's, not this droppable's, and the difference is the
+    whole point of it: point at a CARD and the card is what you are over, so a
+    column that has anything in it would lose its tint the moment you dragged
+    across one. What you are being shown is where the card would LAND, and a
+    card landing on another card lands in the column that holds it.
+  */
+  const { setNodeRef } = useDroppable({
+    id: columnId(status.key),
+    resizeObserverConfig: { updateMeasurementsFor: COLUMN_IDS },
+  });
 
   const card = (task) => (
     <SortableCard key={task.id} task={task}>
@@ -133,7 +228,19 @@ function Column({
   );
 
   return (
-    <div className={`flex flex-col ${vertical ? '' : 'min-w-[260px] flex-1'}`}>
+    /*
+      THE DROP TARGET IS THE WHOLE COLUMN, not just the box the cards sit in.
+
+      The heading is part of the column you are pointing at — you read the word
+      "In progress" and drag to it — and a target that stops an inch below the
+      word it is named after is a target you can miss while looking straight at
+      it. Same for the strip under the last card, which is where a drop onto a
+      column "at the end" naturally goes.
+
+      The tint stays on the box below, because that is the shape a card would
+      join; the column is what ACCEPTS the drop, the box is what SHOWS it.
+    */
+    <div ref={setNodeRef} className={`flex flex-col ${vertical ? '' : 'min-w-[260px] flex-1'}`}>
       <div className="flex items-center gap-2 px-2 pb-2">
         <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: status.color }} />
         <h3 className="text-[11px] font-bold uppercase tracking-widest text-gray-500">{status.label}</h3>
@@ -152,7 +259,6 @@ function Column({
       </div>
 
       <div
-        ref={setNodeRef}
         className={`flex-1 rounded-2xl p-2 transition-colors ${vertical ? 'min-h-[52px]' : 'min-h-[120px]'} ${
           isOver ? 'bg-emerald-50/70 ring-2 ring-emerald-200 ring-inset' : 'bg-gray-50/70'
         }`}
@@ -186,6 +292,8 @@ export default function TaskBoardView({
   const [draftTasks, setDraftTasks] = useState(null);
   const snapshot = useRef(null);
   const [activeId, setActiveId] = useState(null);
+  // Which column would take the card if you let go now. See Column.
+  const [overStatus, setOverStatus] = useState(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   const list = draftTasks ?? tasks;
@@ -217,12 +325,14 @@ export default function TaskBoardView({
 
   const handleDragStart = useCallback((event) => {
     setActiveId(event.active.id);
+    setOverStatus(findColumn(tasks, event.active.id));
     snapshot.current = tasks;
     setDraftTasks(tasks);
   }, [tasks]);
 
   const handleDragOver = useCallback((event) => {
     const { active, over } = event;
+    setOverStatus(over ? findColumn(draftTasks ?? tasks, over.id) : null);
     if (!over) return;
     setDraftTasks(prev => {
       const current = prev ?? tasks;
@@ -231,13 +341,14 @@ export default function TaskBoardView({
       if (!from || !to || from === to) return current;
       return moveTaskToStatus(current, active.id, over.id).tasks;
     });
-  }, [tasks]);
+  }, [draftTasks, tasks]);
 
   const handleDragEnd = useCallback((event) => {
     const { active, over } = event;
     const base = snapshot.current;
     snapshot.current = null;
     setActiveId(null);
+    setOverStatus(null);
     const current = draftTasks ?? tasks;
     const { tasks: settled, itemsToSave, shouldRevert } = finalizeTaskDrag(current, base, active.id, over?.id);
     setDraftTasks(null);
@@ -273,6 +384,7 @@ export default function TaskBoardView({
 
   const handleDragCancel = useCallback(() => {
     setActiveId(null);
+    setOverStatus(null);
     snapshot.current = null;
     setDraftTasks(null);
   }, []);
@@ -282,7 +394,7 @@ export default function TaskBoardView({
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCenter}
+      collisionDetection={boardCollision}
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
@@ -297,6 +409,7 @@ export default function TaskBoardView({
             runs={runs}
             listFor={listFor}
             strategy={strategy}
+            isOver={activeId != null && overStatus === status.key}
             onPatch={onPatch}
             onOpen={onOpen}
             onAdd={onAdd}
